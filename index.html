@@ -1,0 +1,1228 @@
+<!doctype html>
+<html lang="ja" data-theme="default">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#1f6feb" />
+  <title>集GO｜待ち合わせ位置共有</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+
+  <!-- Leaflet (CDN) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    :root {
+      --bg: #0f1420;
+      --panel: #171d2b;
+      --panel-2: #1f2738;
+      --text: #e7ecf3;
+      --muted: #9aa6b8;
+      --accent: #1f6feb;
+      --accent-2: #3b82f6;
+      --danger: #e5484d;
+      --ok: #2fbf71;
+      --warn: #f5a623;
+      --line: #29c266; /* LINE green */
+      --radius: 14px;
+      --shadow: 0 8px 30px rgba(0,0,0,.35);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Noto Sans JP", Meiryo, sans-serif;
+      line-height: 1.6;
+      overscroll-behavior: none;
+    }
+    #app { height: 100dvh; display: flex; flex-direction: column; }
+
+    .screen { display: none; flex: 1; min-height: 0; }
+    .screen.active { display: flex; flex-direction: column; }
+
+    .pad { padding: max(20px, env(safe-area-inset-top)) 20px 24px; }
+    .center { justify-content: center; }
+
+    h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: .02em; }
+    .sub { color: var(--muted); font-size: 14px; margin: 0 0 22px; }
+    .brand { display:flex; align-items:center; gap:10px; margin-bottom: 18px; }
+    .brand .logo { width: 38px; height: 38px; }
+    .brand .name { font-weight: 700; font-size: 18px; }
+
+    label { display:block; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+    input[type=text] {
+      width: 100%; padding: 14px 16px; border-radius: var(--radius);
+      border: 1px solid #2b3548; background: var(--panel); color: var(--text);
+      font-size: 16px; outline: none;
+    }
+    input[type=text]:focus { border-color: var(--accent); }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; padding: 15px 18px; border-radius: var(--radius);
+      border: none; font-size: 16px; font-weight: 600; cursor: pointer;
+      background: var(--panel-2); color: var(--text); transition: filter .15s, transform .05s;
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn:hover { filter: brightness(1.08); }
+    .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; }
+    .btn.line { background: var(--line); color: #073b1c; }
+    .btn.ghost { background: transparent; border: 1px solid #2b3548; color: var(--text); }
+    .btn.danger { background: var(--danger); color: #fff; }
+    .btn[disabled] { opacity: .5; cursor: default; }
+    .stack > * + * { margin-top: 12px; }
+
+    .card {
+      background: var(--panel); border: 1px solid #232c3d; border-radius: var(--radius);
+      padding: 16px; box-shadow: var(--shadow);
+    }
+    .card + .card { margin-top: 14px; }
+
+    .link-box {
+      display:flex; align-items:center; gap:10px; background: var(--panel-2);
+      border: 1px solid #2b3548; border-radius: 12px; padding: 10px 12px; margin-top: 10px;
+    }
+    .link-box code { font-size: 12px; color: var(--muted); word-break: break-all; flex:1; }
+
+    .hint { font-size: 12.5px; color: var(--muted); }
+    .spacer { flex: 1; }
+
+    /* abuse-prevention notice */
+    .notice {
+      font-size: 12.5px; color: var(--muted); background: rgba(245,166,35,.08);
+      border: 1px solid rgba(245,166,35,.25); border-radius: 12px; padding: 12px 14px;
+    }
+    .notice b { color: var(--warn); }
+
+    .who { display:flex; align-items:center; gap:12px; }
+    .avatar { width: 46px; height: 46px; border-radius: 50%; display:grid; place-items:center;
+      font-weight: 700; font-size: 18px; color:#fff; flex: none; }
+    .avatar.me { background: var(--accent); }
+    .avatar.them { background: #8b5cf6; }
+
+    /* MAP screen */
+    #screen-map { position: relative; }
+    #map { position: absolute; inset: 0; z-index: 1; background: #0b101a; }
+    .map-top {
+      position: absolute; left: 12px; right: 12px; top: max(12px, env(safe-area-inset-top));
+      z-index: 1000; display:flex; flex-direction: column; gap: 8px; pointer-events: none;
+    }
+    .banner {
+      pointer-events: auto; background: rgba(23,29,43,.92); backdrop-filter: blur(8px);
+      border: 1px solid #2b3548; border-radius: 12px; padding: 10px 14px;
+      display:flex; align-items:center; gap:10px; box-shadow: var(--shadow);
+    }
+    .banner .dot { width:9px; height:9px; border-radius:50%; background: var(--ok); flex:none;
+      box-shadow: 0 0 0 0 rgba(47,191,113,.6); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(47,191,113,.5)} 70%{box-shadow:0 0 0 10px rgba(47,191,113,0)} 100%{box-shadow:0 0 0 0 rgba(47,191,113,0)} }
+    .banner .txt { flex:1; min-width:0; }
+    .banner .txt .t1 { font-size: 14px; font-weight:600; }
+    .banner .txt .t2 { font-size: 12px; color: var(--muted); }
+    .banner.paused .dot { background: var(--warn); animation: none; }
+
+    .map-bottom {
+      position: absolute; left: 12px; right: 12px; bottom: max(14px, env(safe-area-inset-bottom));
+      z-index: 1000; display:flex; flex-direction: column; gap: 8px;
+    }
+    .map-bottom .row { display:flex; gap: 8px; }
+    .map-bottom .btn { box-shadow: var(--shadow); }
+    /* 地図上のボタンは半透明パネル背景で視認性を確保 */
+    .map-bottom .btn.ghost { background: rgba(23,29,43,.92); backdrop-filter: blur(6px); border-color: #2b3548; }
+    .btn.active { outline: 2px solid var(--accent-2); outline-offset: -2px; background: rgba(59,130,246,.18); }
+    .pill {
+      position:absolute; z-index:1000; left:50%; transform:translateX(-50%);
+      bottom: calc(118px + env(safe-area-inset-bottom));
+      background: rgba(23,29,43,.92); border:1px solid #2b3548; border-radius: 999px;
+      padding: 7px 16px; font-size: 13px; box-shadow: var(--shadow); white-space: nowrap;
+    }
+    .pill b { color: var(--accent-2); }
+    .pill .sep { color: #3a465c; margin: 0 4px; }
+    .banner.merged { border-color: var(--ok); }
+    .banner.merged .dot { background: var(--ok); }
+
+    .toast {
+      position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px);
+      background: #0b1220; border:1px solid #2b3548; color: var(--text);
+      padding: 11px 18px; border-radius: 12px; font-size: 14px; box-shadow: var(--shadow);
+      opacity: 0; pointer-events: none; transition: .25s; z-index: 4000;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ホーム画面に追加（A2HS）モーダル */
+    .a2hs { position: fixed; inset: 0; z-index: 5000; background: rgba(0,0,0,.55);
+      display: flex; align-items: center; justify-content: center; padding: 18px; }
+    .a2hs-card { background: var(--panel); border: 1px solid #2b3548; border-radius: 18px;
+      padding: 24px 22px; max-width: 420px; width: 100%; box-shadow: var(--shadow); text-align: center; }
+    .a2hs-ico { width: 66px; height: 66px; border-radius: 16px; margin-bottom: 12px; box-shadow: var(--shadow); }
+    .a2hs-title { font-weight: 700; font-size: 17px; margin-bottom: 6px; }
+    .a2hs-msg { color: var(--muted); font-size: 13.5px; margin-bottom: 18px; line-height: 1.7; }
+    .a2hs-actions { display: flex; flex-direction: column; gap: 10px; }
+    .a2hs-ios { text-align: left; }
+    .a2hs-ios ol { margin: 4px 0 14px; padding-left: 22px; font-size: 14px; line-height: 2.0; }
+    .a2hs-ios b { color: var(--text); }
+    .a2hs-share { display:inline-grid; place-items:center; width:22px; height:22px; vertical-align:-5px;
+      border:1.5px solid var(--accent-2); border-radius:6px; color:var(--accent-2); font-size:13px; }
+
+    .loader { display:grid; place-items:center; height: 100dvh; color: var(--muted); gap: 14px; }
+    .spin { width: 34px; height:34px; border:3px solid #2b3548; border-top-color: var(--accent);
+      border-radius:50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* leaflet marker labels */
+    .pin {
+      width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+      border: 3px solid #fff; box-shadow: 0 3px 8px rgba(0,0,0,.4);
+      display:grid; place-items:center;
+    }
+    .pin span { transform: rotate(45deg); font-weight:700; color:#fff; font-size: 13px; }
+    .pin.me { background: var(--accent); }
+    .pin.them { background: #8b5cf6; }
+    .pin.meet { background: var(--warn); border-radius: 50%; transform: none; }
+    .pin.meet span { transform: none; }
+
+    /* メンバーの状況バブル（複数表示） */
+    .notes { display:flex; flex-direction:column; gap:6px; }
+    .note-bubble {
+      pointer-events:auto; align-self:flex-start; max-width: 92%;
+      background: rgba(139,92,246,.16); border:1px solid rgba(139,92,246,.5);
+      color:#e7ecf3; border-radius: 12px; padding: 8px 12px; font-size: 13px; box-shadow: var(--shadow);
+    }
+    /* メンバー一覧（横スクロールのチップ） */
+    .roster {
+      position:absolute; left:8px; right:8px; z-index:1000; display:flex; gap:8px;
+      bottom: calc(126px + env(safe-area-inset-bottom));
+      overflow-x:auto; padding:2px 2px 4px; scrollbar-width:none;
+    }
+    .roster::-webkit-scrollbar { display:none; }
+    .member-chip {
+      flex:none; display:flex; align-items:center; gap:7px; cursor:pointer;
+      background: rgba(23,29,43,.92); backdrop-filter: blur(8px); border:1px solid #2b3548;
+      border-radius:999px; padding:7px 13px 7px 10px; box-shadow: var(--shadow); font-size:13px; white-space:nowrap;
+    }
+    .member-chip .cdot { width:11px; height:11px; border-radius:50%; flex:none; }
+    .member-chip .mdist { color: var(--muted); }
+    .member-chip.focused { outline:2px solid var(--accent-2); outline-offset:-1px; }
+    #meetPill { bottom: calc(182px + env(safe-area-inset-bottom)); }
+    /* 方向コンパス */
+    .dir-widget {
+      position:absolute; right:12px; z-index:1000; display:flex; align-items:center; gap:10px;
+      top: calc(112px + env(safe-area-inset-top));
+      background: rgba(23,29,43,.92); backdrop-filter: blur(8px);
+      border:1px solid #2b3548; border-radius:14px; padding:8px 12px 8px 8px;
+      box-shadow: var(--shadow); cursor:pointer;
+    }
+    .dir-ring { width:46px; height:46px; border-radius:50%; background:#0f1420; border:1px solid #2b3548;
+      display:grid; place-items:center; flex:none; }
+    .dir-arrow { font-size:22px; color: var(--accent-2); line-height:1; transition: transform .25s ease-out; }
+    .dir-text > div:first-child { font-size:13px; font-weight:600; }
+    .dir-text .hint { font-size:11px; }
+    /* ボトムシート（集合場所 / 状況） */
+    .sheet {
+      position:absolute; left:10px; right:10px; z-index:1500;
+      bottom: calc(118px + env(safe-area-inset-bottom));
+      background: var(--panel); border:1px solid #2b3548; border-radius:16px;
+      box-shadow: var(--shadow); overflow:hidden;
+    }
+    .sheet-head { display:flex; align-items:center; justify-content:space-between;
+      padding:12px 14px; font-weight:700; border-bottom:1px solid #232c3d; }
+    .sheet-head .x { background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; }
+    .sheet-body { padding:14px; }
+    .search-row { display:flex; gap:8px; }
+    .search-row input { flex:1; }
+    .results { margin-top:10px; display:flex; flex-direction:column; gap:6px; max-height: 200px; overflow:auto; }
+    .results button { text-align:left; background: var(--panel-2); border:1px solid #2b3548; color:var(--text);
+      padding:10px 12px; border-radius:10px; font-size:13px; cursor:pointer; line-height:1.4; }
+    .results button:hover { filter:brightness(1.12); }
+    .results .empty { color: var(--muted); font-size:13px; padding:8px 2px; }
+    .chips { display:flex; flex-wrap:wrap; gap:8px; }
+    .chip { background: var(--panel-2); border:1px solid #2b3548; color:var(--text);
+      padding:10px 14px; border-radius:999px; font-size:14px; cursor:pointer; }
+    .chip:hover { filter:brightness(1.12); }
+    .chip.clear { border-color: rgba(229,72,77,.5); color:#f3a0a2; }
+    #meetEta { color: var(--muted); margin-left:4px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+
+    <!-- LOADER -->
+    <div id="loader" class="loader">
+      <div class="spin"></div>
+      <div>接続中…</div>
+    </div>
+
+    <!-- 1. NAME SETUP -->
+    <section id="screen-name" class="screen">
+      <div class="pad center" style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+        <div class="brand">
+          <img class="logo" src="icon.svg" alt="" />
+          <span class="name">集GO</span>
+        </div>
+        <h1>はじめに、お名前を</h1>
+        <p class="sub">相手の画面に表示される名前です。ニックネームでOK。</p>
+        <div class="stack">
+          <div>
+            <label for="nameInput">表示名</label>
+            <input id="nameInput" type="text" maxlength="20" placeholder="例）たろう" autocomplete="off" />
+          </div>
+          <button id="nameSave" class="btn primary">はじめる</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. HOME -->
+    <section id="screen-home" class="screen">
+      <div class="pad" style="flex:1; display:flex; flex-direction:column;">
+        <div class="brand">
+          <img class="logo" src="icon.svg" alt="" />
+          <span class="name">集GO</span>
+        </div>
+        <h1>こんにちは、<span id="homeName">—</span> さん</h1>
+        <p class="sub">待ち合わせを作って、LINEで相手を招待しましょう。</p>
+
+        <div class="stack">
+          <button id="btnCreate" class="btn primary">＋ 待ち合わせを作成</button>
+          <div class="hint" style="text-align:center; padding: 4px 0;">相手から招待リンクを受け取った場合は、そのリンクを開いてください。</div>
+        </div>
+
+        <div class="spacer"></div>
+
+        <div class="notice">
+          <b>安心のしくみ</b><br>
+          ・お互いが承認したときだけ位置を共有します<br>
+          ・共有はいつでもワンタップで終了できます<br>
+          ・一定時間で自動的に共有が終了します<br>
+          ・位置の履歴は保存しません（今いる場所だけ）
+        </div>
+        <div class="hint" style="text-align:center; margin-top:14px;">
+          <a href="#" id="changeName" style="color:var(--muted)">表示名を変更</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. CREATED (waiting for partner) -->
+    <section id="screen-created" class="screen">
+      <div class="pad" style="flex:1; display:flex; flex-direction:column;">
+        <h1>招待を送る</h1>
+        <p class="sub">このリンクをLINEで送ってください（最大5人）。同じリンクを複数人に送れます。相手が開いて承認すると共有が始まります。</p>
+
+        <div class="card">
+          <div style="font-weight:600; margin-bottom:6px;">招待リンク</div>
+          <div class="link-box">
+            <code id="inviteUrl">—</code>
+          </div>
+          <div class="stack" style="margin-top:14px;">
+            <button id="btnLine" class="btn line">LINEで送る / 共有</button>
+            <button id="btnCopy" class="btn ghost">リンクをコピー</button>
+          </div>
+        </div>
+
+        <div class="card" style="display:flex; align-items:center; gap:12px;">
+          <div class="spin" style="width:22px;height:22px;border-width:2px;"></div>
+          <div>
+            <div style="font-weight:600;">メンバーの参加を待っています…</div>
+            <div class="hint">最初の人が承認すると自動で地図に切り替わります。</div>
+          </div>
+        </div>
+
+        <div class="spacer"></div>
+        <button id="btnOpenMap" class="btn primary" style="margin-bottom:10px;">先に地図を開いて待つ</button>
+        <button id="btnCancel" class="btn ghost">キャンセル</button>
+      </div>
+    </section>
+
+    <!-- 4. INVITE (you were invited -> approve) -->
+    <section id="screen-invite" class="screen">
+      <div class="pad center" style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+        <div class="card">
+          <div class="who" style="margin-bottom:14px;">
+            <div class="avatar them" id="inviteAvatar">?</div>
+            <div>
+              <div style="font-weight:700; font-size:17px;"><span id="inviteHost">—</span> さん</div>
+              <div class="hint">があなたと現在地を共有したいです</div>
+            </div>
+          </div>
+          <p class="sub" style="margin:0 0 16px;">承認すると、<b>あなたの現在地も相手に共有されます</b>。会えるまでの間だけ、地図でお互いの位置がわかります。</p>
+          <div class="stack">
+            <button id="btnApprove" class="btn primary">承認して位置を共有する</button>
+            <button id="btnDecline" class="btn ghost">拒否する</button>
+          </div>
+        </div>
+        <div class="notice" style="margin-top:14px;">
+          <b>知らない相手からの招待に注意。</b> 心当たりのない招待は「拒否」してください。共有はいつでも終了でき、一定時間で自動的に切れます。
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. MAP (active sharing) -->
+    <section id="screen-map" class="screen">
+      <div id="map"></div>
+      <div class="map-top">
+        <div id="shareBanner" class="banner">
+          <div class="dot"></div>
+          <div class="txt">
+            <div class="t1" id="bannerTitle">グループ共有中</div>
+            <div class="t2" id="bannerSub">位置を取得しています…</div>
+          </div>
+          <div style="font-variant-numeric: tabular-nums; font-size:13px; color:var(--muted);" id="timeLeft">—</div>
+        </div>
+        <div id="notes" class="notes"></div>
+      </div>
+
+      <!-- 相手の方向コンパス -->
+      <div id="dirWidget" class="dir-widget" style="display:none;">
+        <div class="dir-ring"><div id="dirArrow" class="dir-arrow">➤</div></div>
+        <div class="dir-text">
+          <div id="dirLabel">相手の方向</div>
+          <div id="dirSub" class="hint">タップでコンパス有効化</div>
+        </div>
+      </div>
+
+      <div id="roster" class="roster" style="display:none;"></div>
+      <div id="meetPill" class="pill" style="display:none;">集合まで <b id="meetVal">—</b><span id="meetEta"></span></div>
+
+      <!-- 集合場所パネル -->
+      <div id="meetPanel" class="sheet" style="display:none;">
+        <div class="sheet-head">集合場所を設定 <button id="meetClose" class="x">✕</button></div>
+        <div class="sheet-body">
+          <div class="search-row">
+            <input id="meetSearch" type="text" placeholder="駅・住所・店名で検索" autocomplete="off" />
+            <button id="meetSearchBtn" class="btn primary" style="width:auto; padding:12px 16px;">検索</button>
+          </div>
+          <div id="meetResults" class="results"></div>
+          <div class="hint" style="margin-top:6px;">または地図を直接タップしても設定できます。</div>
+          <button id="meetClear" class="btn ghost" style="display:none; margin-top:12px;">集合場所を解除</button>
+        </div>
+      </div>
+
+      <!-- 状況パネル -->
+      <div id="statusPanel" class="sheet" style="display:none;">
+        <div class="sheet-head">状況を送る <button id="statusClose" class="x">✕</button></div>
+        <div class="sheet-body">
+          <div class="chips" id="statusChips"></div>
+        </div>
+      </div>
+
+      <div class="map-bottom">
+        <div class="row">
+          <button id="btnMeet" class="btn ghost" style="flex:1;">📍 集合</button>
+          <button id="btnStatus" class="btn ghost" style="flex:1;">💬 状況</button>
+          <button id="btnRecenter" class="btn ghost" style="flex:1;">◎ 中央</button>
+        </div>
+        <button id="btnEnd" class="btn danger">共有を終了</button>
+      </div>
+    </section>
+
+    <!-- 6. ENDED -->
+    <section id="screen-ended" class="screen">
+      <div class="pad center" style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+        <h1 id="endedTitle">共有を終了しました</h1>
+        <p class="sub" id="endedMsg">位置の共有は停止しました。お疲れさまでした。</p>
+        <button id="btnHome" class="btn primary">ホームに戻る</button>
+      </div>
+    </section>
+
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <!-- ホーム画面に追加（A2HS）モーダル -->
+  <div id="a2hs" class="a2hs" style="display:none;">
+    <div class="a2hs-card">
+      <img src="icon.svg" class="a2hs-ico" alt="" />
+      <div class="a2hs-title">「集GO」をホーム画面に追加しますか？</div>
+      <div class="a2hs-msg" id="a2hsMsg">次回からアイコンをタップするだけで開けます。</div>
+      <div id="a2hsActions" class="a2hs-actions">
+        <button id="a2hsYes" class="btn primary">はい、追加する</button>
+        <button id="a2hsNo" class="btn ghost">あとで</button>
+      </div>
+      <div id="a2hsIosGuide" class="a2hs-ios" style="display:none;">
+        <ol>
+          <li>下の <span class="a2hs-share">↑</span> <b>共有ボタン</b> をタップ</li>
+          <li><b>「ホーム画面に追加」</b> を選ぶ</li>
+          <li>右上の <b>「追加」</b> をタップ</li>
+        </ol>
+        <button id="a2hsIosClose" class="btn ghost">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet JS (CDN) -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script type="module">
+    /* ============================================================
+       集GO — リアルタイム位置共有 MVP
+       Stack: Leaflet + Firebase Realtime Database + 匿名認証 (PWA)
+       ============================================================ */
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged }
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import { getDatabase, ref, set, update, get, onValue, onDisconnect, remove, serverTimestamp }
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+    // ▼▼▼ Firebase 設定（FIREBASE_SETUP.md の手順で取得して貼り替えてください） ▼▼▼
+    const firebaseConfig = {
+      apiKey: "AIzaSyBe5obxeLZzleYA0XY7R9wNXcUQJU5g2uY",
+      authDomain: "shugo-app-6df7e.firebaseapp.com",
+      databaseURL: "https://shugo-app-6df7e-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "shugo-app-6df7e",
+      storageBucket: "shugo-app-6df7e.firebasestorage.app",
+      messagingSenderId: "45111723811",
+      appId: "1:45111723811:web:28f2c96b421983bf90ae96",
+    };
+    // ▲▲▲ ここまで貼り替え ▲▲▲
+
+    const SESSION_TTL_MS = 2 * 60 * 60 * 1000;   // 共有の有効時間（2時間で自動失効）
+    const APP_VERSION = "2026.06.24.8";
+
+    // ---- 小物 ----
+    const $ = (id) => document.getElementById(id);
+    const screens = ["name","home","created","invite","map","ended"];
+    function showScreen(name){
+      $("loader").style.display = "none";
+      screens.forEach(s => $("screen-"+s).classList.toggle("active", s===name));
+    }
+    let toastTimer;
+    function toast(msg){
+      const t = $("toast"); t.textContent = msg; t.classList.add("show");
+      clearTimeout(toastTimer); toastTimer = setTimeout(()=>t.classList.remove("show"), 2200);
+    }
+    function randomId(len=12){
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+      const a = new Uint32Array(len); crypto.getRandomValues(a);
+      return Array.from(a, n => chars[n % chars.length]).join("");
+    }
+    function initials(name){ return (name||"?").trim().charAt(0).toUpperCase() || "?"; }
+    function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+    // ---- 状態 ----
+    let uid = null;
+    let myName = localStorage.getItem("mm_name") || "";
+    let sessionId = null;
+    let role = null;            // 'host' | 'guest'
+    let watchId = null;
+    let unsub = [];             // RTDB リスナー解除
+    let map, markers = {}, circles = {}, lines = {}, fitted = false;
+    let expiresAt = 0, timer = null;
+    let meetPoint = null, meetMarker = null, settingMeet = false;
+    let mergeStates = {};          // uid -> 0:離れている 1:接近中 2:合流済み
+    const NEAR_M = 50, MERGE_M = 20;  // 接近/合流の距離しきい値(m)
+    let lastMe = null;             // 直近の自分の座標
+    let compassEnabled = false, compassHeading = null;  // 端末コンパス
+    let members = {};              // uid -> participant({name,role,note,...})
+    let latestLocs = {};           // uid -> 位置({lat,lng,...})
+    let focusUid = null;           // 方向コンパス/フォーカス対象の相手
+    const MAX_MEMBERS = 5;         // 1グループの最大人数
+    const OTHER_COLORS = ["#8b5cf6","#2fbf71","#f5a623","#e5484d"]; // 相手の色（自分は青）
+    const WALK_MPM = 80;            // 徒歩の目安速度（約80m/分 ≈ 4.8km/h）
+    const STATUS_PRESETS = ["向かっています","もうすぐ着きます","5分で着きます","10分で着きます","遅れています","到着しました"];
+
+    // =========================================================
+    // Firebase 初期化 & 匿名サインイン
+    // =========================================================
+    let app, auth, db;
+    try {
+      app = initializeApp(firebaseConfig);
+      auth = getAuth(app);
+      db = getDatabase(app);
+    } catch (e) {
+      $("loader").innerHTML = "<div>Firebaseの設定が必要です。<br>FIREBASE_SETUP.md を参照してください。</div>";
+      console.error(e);
+    }
+
+    if (auth) {
+      onAuthStateChanged(auth, (user) => {
+        if (user) { uid = user.uid; boot(); }
+      });
+      signInAnonymously(auth).catch(err => {
+        $("loader").innerHTML = "<div>サインインに失敗しました。<br>FIREBASE_SETUP.md（匿名認証の有効化）を確認してください。</div>";
+        console.error(err);
+      });
+    }
+
+    // =========================================================
+    // 起動ルーティング
+    // =========================================================
+    function boot(){
+      const params = new URLSearchParams(location.search);
+      const sid = params.get("s");
+
+      if (!myName) { // 名前未設定 → まず名前
+        showScreen("name");
+        pendingSid = sid;     // 名前設定後に招待へ
+        return;
+      }
+      $("homeName").textContent = myName;
+      if (sid) { openInvite(sid); }
+      else { showScreen("home"); }
+    }
+    let pendingSid = null;
+
+    // =========================================================
+    // 名前設定
+    // =========================================================
+    $("nameInput").value = myName;
+    $("nameSave").addEventListener("click", () => {
+      const v = $("nameInput").value.trim();
+      if (!v) { toast("名前を入力してください"); return; }
+      myName = v; localStorage.setItem("mm_name", v);
+      $("homeName").textContent = myName;
+      if (pendingSid) { const s = pendingSid; pendingSid = null; openInvite(s); }
+      else showScreen("home");
+    });
+    $("changeName").addEventListener("click", (e)=>{ e.preventDefault(); $("nameInput").value = myName; showScreen("name"); });
+
+    // =========================================================
+    // 待ち合わせ作成（ホスト）
+    // =========================================================
+    $("btnCreate").addEventListener("click", createSession);
+    async function createSession(){
+      sessionId = randomId();
+      role = "host";
+      expiresAt = Date.now() + SESSION_TTL_MS;
+      // ルール上、親パス(sessions/$sid)への直接 set は不可。meta → participants を個別に書く。
+      await set(ref(db, `sessions/${sessionId}/meta`),
+        { status: "pending", createdAt: serverTimestamp(), expiresAt, hostUid: uid, hostName: myName, maxMembers: MAX_MEMBERS });
+      await set(ref(db, `sessions/${sessionId}/participants/${uid}`),
+        { name: myName, role: "host", approved: true, joinedAt: serverTimestamp() });
+      // 退出時に自分の位置を消す
+      onDisconnect(ref(db, `sessions/${sessionId}/locations/${uid}`)).remove();
+
+      const url = `${location.origin}${location.pathname}?s=${sessionId}`;
+      $("inviteUrl").textContent = url;
+      showScreen("created");
+      listenSession();   // 相手の参加・承認を待つ
+    }
+
+    // 招待リンク共有
+    $("btnLine").addEventListener("click", async () => {
+      const url = $("inviteUrl").textContent;
+      const text = `${myName}さんから「集GO」待ち合わせの招待です。リンクを開いて承認すると、地図でお互いの現在地が見られます。\n${url}`;
+      if (navigator.share) {
+        try { await navigator.share({ title: "集GO", text }); }
+        catch(_) {/* キャンセル */}
+      } else {
+        await navigator.clipboard.writeText(text);
+        toast("メッセージをコピーしました。LINEに貼り付けて送ってください");
+      }
+    });
+    $("btnCopy").addEventListener("click", async () => {
+      await navigator.clipboard.writeText($("inviteUrl").textContent);
+      toast("リンクをコピーしました");
+    });
+    $("btnCancel").addEventListener("click", () => { endSession("ホストが招待をキャンセルしました", true); });
+    $("btnOpenMap").addEventListener("click", () => { startSharing(); });
+
+    // =========================================================
+    // 招待を受ける（ゲスト）
+    // =========================================================
+    async function openInvite(sid){
+      sessionId = sid; role = "guest";
+      const snap = await get(ref(db, `sessions/${sid}/meta`));
+      if (!snap.exists()) { showEnded("招待が見つかりません", "リンクが正しいか、すでに終了していないか確認してください。"); return; }
+      const meta = snap.val();
+      if (meta.status === "ended") { showEnded("この招待は終了しています", "新しい招待を送ってもらってください。"); return; }
+      if (meta.expiresAt && Date.now() > meta.expiresAt) { showEnded("招待の有効期限が切れています", "新しい招待を送ってもらってください。"); return; }
+
+      const cap = meta.maxMembers || MAX_MEMBERS;
+      const psnap = await get(ref(db, `sessions/${sid}/participants`));
+      const cur = psnap.val() || {};
+      if (!(uid in cur) && Object.keys(cur).length >= cap) { showEnded("満員です", `このグループは満員（最大${cap}人）です。`); return; }
+
+      $("inviteHost").textContent = meta.hostName || "相手";
+      $("inviteAvatar").textContent = initials(meta.hostName);
+      expiresAt = meta.expiresAt || (Date.now() + SESSION_TTL_MS);
+      showScreen("invite");
+    }
+    $("btnApprove").addEventListener("click", async () => {
+      // 満員チェック（best-effort）
+      const psnap = await get(ref(db, `sessions/${sessionId}/participants`));
+      const cur = psnap.val() || {};
+      if (!(uid in cur) && Object.keys(cur).length >= MAX_MEMBERS) {
+        showEnded("満員です", `このグループは満員（最大${MAX_MEMBERS}人）です。`); return;
+      }
+      // 先に参加者登録 → その後 status を更新（ルール上 status は「参加者のみ」書込可のため順序が重要）
+      await set(ref(db, `sessions/${sessionId}/participants/${uid}`),
+        { name: myName, role: "guest", approved: true, joinedAt: serverTimestamp() });
+      await update(ref(db, `sessions/${sessionId}/meta`), { status: "active" });
+      onDisconnect(ref(db, `sessions/${sessionId}/locations/${uid}`)).remove();
+      startSharing();
+      setTimeout(maybeOfferInstall, 1200);   // 承認して地図に入った後に「ホーム画面に追加しますか？」
+    });
+    $("btnDecline").addEventListener("click", () => { window.history.replaceState({}, "", location.pathname); showScreen("home"); });
+
+    // =========================================================
+    // セッション監視（作成側：相手の参加を待つ / 共有中：両者を監視）
+    // =========================================================
+    function listenSession(){
+      clearListeners();
+      // メタ監視（ステータス・期限）
+      unsub.push(onValue(ref(db, `sessions/${sessionId}/meta`), (snap) => {
+        const meta = snap.val();
+        if (!meta) { endSession("セッションが終了しました", false); return; }
+        if (meta.status === "ended") { showEnded("共有が終了しました", "メンバーが共有を終了しました。"); cleanup(); return; }
+        if (meta.expiresAt) expiresAt = meta.expiresAt;
+        // ホストが待機中で、相手が承認したら地図へ
+        if (role === "host" && meta.status === "active" && !$("screen-map").classList.contains("active")) {
+          startSharing();
+        }
+      }));
+    }
+
+    // =========================================================
+    // 共有開始：地図表示 + 位置の送受信
+    // =========================================================
+    function startSharing(){
+      showScreen("map");
+      if (!map) initMap();
+      else setTimeout(()=>map.invalidateSize(), 80);
+      fitted = false; mergeStates = {};
+      lastMe = null; focusUid = null; members = {}; latestLocs = {};
+      $("dirWidget").style.display = "none";
+      $("notes").innerHTML = "";
+      $("roster").style.display = "none";
+      $("meetPill").style.display = "none";
+      $("meetPanel").style.display = "none";
+      $("statusPanel").style.display = "none";
+      listenSession();
+      listenLocations();
+      listenMeetPoint();
+      startGeolocation();
+      startTimer();
+    }
+
+    function initMap(){
+      map = L.map("map", { zoomControl: false, attributionControl: false })
+            .setView([35.681236, 139.767125], 15); // 仮：東京駅
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
+      L.control.attribution({ prefix: false }).addAttribution("© OpenStreetMap").addTo(map);
+      map.on("click", (e) => {
+        if (!settingMeet) return;
+        writeMeetPoint(e.latlng.lat, e.latlng.lng);
+        closeMeetPanel();
+        toast("集合場所を設定しました");
+      });
+    }
+
+    function makePin(name, color, isMe){
+      const ring = isMe ? " box-shadow:0 0 0 3px rgba(255,255,255,.55), 0 3px 8px rgba(0,0,0,.45);" : "";
+      const html = `<div class="pin" style="background:${color};${ring}"><span>${escapeHtml(initials(name))}</span></div>`;
+      return L.divIcon({ html, className: "", iconSize: [30,30], iconAnchor: [15,28] });
+    }
+
+    function listenLocations(){
+      unsub.push(onValue(ref(db, `sessions/${sessionId}/locations`), (snap) => {
+        latestLocs = snap.val() || {};
+        renderAll();
+      }));
+      unsub.push(onValue(ref(db, `sessions/${sessionId}/participants`), (snap)=>{
+        members = snap.val() || {};
+        renderAll();
+      }));
+    }
+
+    // ---- 集合場所（両者で共有） ----
+    function listenMeetPoint(){
+      unsub.push(onValue(ref(db, `sessions/${sessionId}/meetPoint`), (snap) => {
+        const v = snap.val();
+        meetPoint = (v && typeof v.lat === "number") ? v : null;
+        renderMeetMarker();
+        if ($("screen-map").classList.contains("active")) renderAll();
+      }));
+    }
+    function writeMeetPoint(lat, lng){
+      set(ref(db, `sessions/${sessionId}/meetPoint`), { lat, lng, by: uid, at: Date.now() });
+    }
+    function renderMeetMarker(){
+      if (!map) return;
+      if (meetPoint) {
+        const ll = [meetPoint.lat, meetPoint.lng];
+        const icon = L.divIcon({ html: `<div class="pin meet"><span>📍</span></div>`, className: "", iconSize: [30,30], iconAnchor: [15,15] });
+        if (!meetMarker) meetMarker = L.marker(ll, { icon }).addTo(map);
+        else meetMarker.setLatLng(ll);
+      } else if (meetMarker) { map.removeLayer(meetMarker); meetMarker = null; }
+    }
+    // ---- 集合場所パネル（検索 / 地図タップ / 解除） ----
+    function openMeetPanel(){
+      $("statusPanel").style.display = "none";
+      $("meetPanel").style.display = "block";
+      $("meetClear").style.display = meetPoint ? "block" : "none";
+      $("meetResults").innerHTML = "";
+      $("meetSearch").value = "";
+      settingMeet = true;                 // 地図タップでも設定可
+      $("btnMeet").classList.add("active");
+      setTimeout(()=>$("meetSearch").focus(), 50);
+    }
+    function closeMeetPanel(){
+      $("meetPanel").style.display = "none";
+      settingMeet = false;
+      $("btnMeet").classList.remove("active");
+    }
+    $("btnMeet").addEventListener("click", () => {
+      if ($("meetPanel").style.display === "block") closeMeetPanel(); else openMeetPanel();
+    });
+    $("meetClose").addEventListener("click", closeMeetPanel);
+    $("meetClear").addEventListener("click", () => {
+      set(ref(db, `sessions/${sessionId}/meetPoint`), null);
+      closeMeetPanel();
+      toast("集合場所を解除しました");
+    });
+
+    // 住所・場所検索（OpenStreetMap Nominatim）
+    async function geocode(q){
+      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&accept-language=ja&countrycodes=jp&q=${encodeURIComponent(q)}`;
+      const res = await fetch(url, { headers: { "Accept": "application/json" } });
+      if (!res.ok) throw new Error("geocode failed");
+      return res.json();
+    }
+    async function doSearch(){
+      const q = $("meetSearch").value.trim();
+      if (!q) return;
+      $("meetResults").innerHTML = `<div class="empty">検索中…</div>`;
+      try {
+        const list = await geocode(q);
+        if (!list.length) { $("meetResults").innerHTML = `<div class="empty">見つかりませんでした。別の語句でお試しください。</div>`; return; }
+        $("meetResults").innerHTML = "";
+        list.forEach(item => {
+          const b = document.createElement("button");
+          b.textContent = item.display_name;
+          b.addEventListener("click", () => {
+            const lat = parseFloat(item.lat), lng = parseFloat(item.lon);
+            writeMeetPoint(lat, lng);
+            if (map) map.setView([lat,lng], 16);
+            closeMeetPanel();
+            toast("集合場所を設定しました");
+          });
+          $("meetResults").appendChild(b);
+        });
+      } catch(e){ console.warn(e); $("meetResults").innerHTML = `<div class="empty">検索に失敗しました。通信状況をご確認ください。</div>`; }
+    }
+    $("meetSearchBtn").addEventListener("click", doSearch);
+    $("meetSearch").addEventListener("keydown", (e)=>{ if (e.key === "Enter") doSearch(); });
+
+    // ---- 状況の共有（プリセット送信 → 相手のバナーに表示） ----
+    function buildStatusChips(){
+      const wrap = $("statusChips"); wrap.innerHTML = "";
+      STATUS_PRESETS.forEach(txt => {
+        const c = document.createElement("button"); c.className = "chip"; c.textContent = txt;
+        c.addEventListener("click", () => sendStatus(txt));
+        wrap.appendChild(c);
+      });
+      const clr = document.createElement("button"); clr.className = "chip clear"; clr.textContent = "状況をクリア";
+      clr.addEventListener("click", () => sendStatus(""));
+      wrap.appendChild(clr);
+    }
+    function sendStatus(text){
+      if (!sessionId || !uid) return;
+      update(ref(db, `sessions/${sessionId}/participants/${uid}`), { note: text || null, noteAt: Date.now() });
+      $("statusPanel").style.display = "none";
+      toast(text ? "状況を送りました" : "状況をクリアしました");
+    }
+    $("btnStatus").addEventListener("click", () => {
+      const open = $("statusPanel").style.display === "block";
+      $("meetPanel").style.display = "none"; closeMeetPanel();
+      if (open) { $("statusPanel").style.display = "none"; }
+      else { buildStatusChips(); $("statusPanel").style.display = "block"; }
+    });
+    $("statusClose").addEventListener("click", () => { $("statusPanel").style.display = "none"; });
+
+    // ---- 相手の方向コンパス ----
+    function bearing(from, to){
+      const toR = Math.PI/180, toD = 180/Math.PI;
+      const dLng = (to[1]-from[1])*toR;
+      const y = Math.sin(dLng) * Math.cos(to[0]*toR);
+      const x = Math.cos(from[0]*toR)*Math.sin(to[0]*toR) - Math.sin(from[0]*toR)*Math.cos(to[0]*toR)*Math.cos(dLng);
+      return (Math.atan2(y, x)*toD + 360) % 360;
+    }
+    function cardinal(deg){
+      return ["北","北東","東","南東","南","南西","西","北西"][Math.round(deg/45) % 8];
+    }
+    function updateDirection(){
+      const me = latestLocs[uid];
+      const tgt = focusUid ? latestLocs[focusUid] : null;
+      if (!(me && tgt && typeof tgt.lat === "number")) { $("dirWidget").style.display = "none"; return; }
+      const brg = bearing([me.lat,me.lng],[tgt.lat,tgt.lng]);
+      // コンパス有効時は端末の向きを引いて「実際に向くべき方向」を指す。未有効なら地図(北上)基準。
+      const rot = (compassEnabled && compassHeading != null) ? (brg - compassHeading) : brg;
+      $("dirWidget").style.display = "flex";
+      $("dirArrow").style.transform = `rotate(${rot}deg)`;
+      $("dirLabel").textContent = `${members[focusUid]?.name || "相手"} ・ ${cardinal(brg)}`;
+      $("dirSub").textContent = compassEnabled ? "コンパスON（実際の向き）" : "地図の北基準・タップで補正";
+    }
+    function onOrient(e){
+      let h = null;
+      if (typeof e.webkitCompassHeading === "number") h = e.webkitCompassHeading;     // iOS
+      else if (e.absolute && typeof e.alpha === "number") h = (360 - e.alpha) % 360;   // Android(absolute)
+      if (h != null) { compassHeading = (h + 360) % 360; updateDirection(); }
+    }
+    async function enableCompass(){
+      if (compassEnabled) return;
+      try {
+        const DOE = window.DeviceOrientationEvent;
+        if (DOE && typeof DOE.requestPermission === "function") {  // iOS 13+ は許可が必要
+          const p = await DOE.requestPermission();
+          if (p !== "granted") { toast("コンパスの利用が許可されませんでした"); return; }
+        }
+        window.addEventListener("deviceorientationabsolute", onOrient, true);
+        window.addEventListener("deviceorientation", onOrient, true);
+        compassEnabled = true;
+        toast("コンパスを有効にしました");
+        updateDirection();
+      } catch(e){ console.warn(e); toast("コンパスを利用できません"); }
+    }
+    function disableCompass(){
+      window.removeEventListener("deviceorientationabsolute", onOrient, true);
+      window.removeEventListener("deviceorientation", onOrient, true);
+      compassEnabled = false; compassHeading = null;
+    }
+    $("dirWidget").addEventListener("click", enableCompass);
+
+    function fmtDist(m){ return m < 1000 ? `${Math.round(m)} m` : `${(m/1000).toFixed(2)} km`; }
+
+    // メンバーごとの色（自分は青固定、相手は参加順で割り当て）
+    function colorFor(id){
+      if (id === uid) return "#1f6feb";
+      const others = Object.keys(members).filter(k => k !== uid).sort();
+      const i = others.indexOf(id);
+      return OTHER_COLORS[(i < 0 ? 0 : i) % OTHER_COLORS.length];
+    }
+
+    // 位置・参加者が更新されるたびに地図とUIをまとめて再描画
+    function renderAll(){
+      if (!map) return;
+      const locs = latestLocs;
+      const ids = Object.keys(locs).filter(id => locs[id] && typeof locs[id].lat === "number");
+      const pts = [];
+      ids.forEach(id => {
+        const l = locs[id];
+        const isMe = id === uid;
+        const name = isMe ? "あなた" : (members[id]?.name || "相手");
+        const color = colorFor(id);
+        const latlng = [l.lat, l.lng];
+        pts.push(latlng);
+        if (!markers[id]) markers[id] = L.marker(latlng, { icon: makePin(name, color, isMe) }).addTo(map);
+        else markers[id].setLatLng(latlng).setIcon(makePin(name, color, isMe));
+        const acc = (typeof l.accuracy === "number" && l.accuracy > 0) ? Math.min(l.accuracy, 200) : 0;
+        if (acc) {
+          if (!circles[id]) circles[id] = L.circle(latlng, { radius: acc, color, weight: 1, fillColor: color, fillOpacity: .08 }).addTo(map);
+          else circles[id].setLatLng(latlng).setRadius(acc);
+        } else if (circles[id]) { map.removeLayer(circles[id]); delete circles[id]; }
+      });
+      // 退出/位置消失したメンバーの描画を除去
+      Object.keys(markers).forEach(id => { if (!ids.includes(id)) { map.removeLayer(markers[id]); delete markers[id]; if (circles[id]) { map.removeLayer(circles[id]); delete circles[id]; } } });
+
+      renderLines(locs);
+      renderRoster(locs);
+      renderNotes();
+      updateBannerTitle();
+
+      lastMe = locs[uid] ? [locs[uid].lat, locs[uid].lng] : null;
+      updateNearestAndMerge(locs);
+      updateDirection();
+      updateMeetInfo(locs);
+
+      if (!fitted && pts.length) {
+        const all = pts.slice();
+        if (meetPoint) all.push([meetPoint.lat, meetPoint.lng]);
+        if (all.length >= 2) { map.fitBounds(all, { padding: [70,70], maxZoom: 17 }); fitted = true; }
+        else { map.setView(pts[0], 16); }
+      }
+    }
+
+    // 自分から各メンバーへの線
+    function renderLines(locs){
+      const me = locs[uid];
+      const others = Object.keys(locs).filter(id => id !== uid && locs[id] && typeof locs[id].lat === "number");
+      if (!me) { Object.values(lines).forEach(l => map.removeLayer(l)); lines = {}; return; }
+      const a = [me.lat, me.lng];
+      others.forEach(id => {
+        const b = [locs[id].lat, locs[id].lng];
+        if (!lines[id]) lines[id] = L.polyline([a,b], { color: colorFor(id), weight: 2.5, dashArray: "5 7", opacity: .55 }).addTo(map);
+        else lines[id].setLatLngs([a,b]).setStyle({ color: colorFor(id) });
+      });
+      Object.keys(lines).forEach(id => { if (!others.includes(id)) { map.removeLayer(lines[id]); delete lines[id]; } });
+    }
+
+    // メンバー一覧チップ（色・名前・自分からの距離）。タップでフォーカス
+    function renderRoster(locs){
+      const el = $("roster");
+      const ids = Object.keys(members);
+      if (!ids.length) { el.style.display = "none"; return; }
+      el.style.display = "flex"; el.innerHTML = "";
+      const me = locs[uid];
+      const ordered = ids.slice().sort((x,y) => (x===uid ? -1 : (y===uid ? 1 : 0)));
+      ordered.forEach(id => {
+        const m = members[id]; if (!m) return;
+        const isMe = id === uid;
+        const chip = document.createElement("div");
+        chip.className = "member-chip" + (id === focusUid && !isMe ? " focused" : "");
+        let dist = "";
+        if (!isMe) {
+          if (me && locs[id] && typeof locs[id].lat === "number")
+            dist = `<span class="mdist">${fmtDist(haversine([me.lat,me.lng],[locs[id].lat,locs[id].lng]))}</span>`;
+          else dist = `<span class="mdist">位置待ち</span>`;
+        }
+        chip.innerHTML = `<span class="cdot" style="background:${colorFor(id)}"></span><span>${isMe ? "あなた" : escapeHtml(m.name||"相手")}</span>${dist}`;
+        if (!isMe) chip.addEventListener("click", () => {
+          focusUid = id;
+          if (markers[id]) map.panTo(markers[id].getLatLng());
+          renderRoster(latestLocs); updateDirection();
+        });
+        el.appendChild(chip);
+      });
+    }
+
+    // 各メンバーの状況メッセージ（複数同時表示）
+    function renderNotes(){
+      const el = $("notes"); el.innerHTML = "";
+      Object.entries(members).forEach(([id, m]) => {
+        if (id === uid || !m || !m.note) return;
+        const b = document.createElement("div"); b.className = "note-bubble";
+        b.textContent = `💬 ${m.name||"相手"}：${m.note}`;
+        el.appendChild(b);
+      });
+    }
+
+    function updateBannerTitle(){
+      const n = Object.keys(members).length;
+      $("bannerTitle").textContent = n >= 2 ? `グループ共有中・${n}人` : "共有中";
+    }
+
+    // 最寄りメンバーの算出＋メンバー別の合流判定
+    function updateNearestAndMerge(locs){
+      const me = locs[uid];
+      const banner = $("shareBanner");
+      let nearestId = null, nearestD = Infinity;
+      if (me) {
+        Object.keys(locs).forEach(id => {
+          if (id === uid) return;
+          const l = locs[id]; if (!l || typeof l.lat !== "number") return;
+          const d = haversine([me.lat,me.lng],[l.lat,l.lng]);
+          if (d < nearestD) { nearestD = d; nearestId = id; }
+          const prev = mergeStates[id] || 0;
+          const nm = members[id]?.name || "相手";
+          if (d <= MERGE_M) { if (prev < 2) { mergeStates[id] = 2; notify(`${nm}さんと合流しました 🎉`, [80,40,80]); } }
+          else if (d <= NEAR_M) { if (prev < 1) { mergeStates[id] = 1; notify(`${nm}さんがまもなく合流`, [60]); } else { mergeStates[id] = 1; } }
+          else mergeStates[id] = 0;
+        });
+      }
+      Object.keys(mergeStates).forEach(id => { if (!(id in locs)) delete mergeStates[id]; });
+      if (nearestId != null) {
+        const nm = members[nearestId]?.name || "相手";
+        if (nearestD <= MERGE_M) { $("bannerSub").textContent = `${nm}さんと合流 🎉`; banner.classList.add("merged"); }
+        else if (nearestD <= NEAR_M) { $("bannerSub").textContent = `${nm}さんがまもなく合流（${Math.round(nearestD)}m）`; banner.classList.remove("merged"); }
+        else { $("bannerSub").textContent = `最寄り：${nm} ${fmtDist(nearestD)}`; banner.classList.remove("merged"); }
+      } else {
+        $("bannerSub").textContent = me ? "メンバーの位置を待っています…" : "あなたの位置を取得中…";
+        banner.classList.remove("merged");
+      }
+      // フォーカス未指定/対象が抜けたら最寄りに自動セット
+      if (!focusUid || !(focusUid in locs)) focusUid = nearestId;
+    }
+
+    function updateMeetInfo(locs){
+      const me = locs[uid];
+      if (meetPoint && me) {
+        const md = haversine([me.lat,me.lng],[meetPoint.lat,meetPoint.lng]);
+        $("meetVal").textContent = fmtDist(md);
+        const eta = Math.max(1, Math.round(md / WALK_MPM));
+        $("meetEta").textContent = md > 40 ? `（徒歩約${eta}分）` : "（まもなく）";
+        $("meetPill").style.display = "block";
+      } else { $("meetPill").style.display = "none"; }
+    }
+
+    function notify(msg, pattern){
+      toast(msg);
+      if (navigator.vibrate) { try { navigator.vibrate(pattern); } catch(_){} }
+    }
+
+    function haversine(a, b){
+      const R = 6371000, toR = Math.PI/180;
+      const dLat = (b[0]-a[0])*toR, dLng = (b[1]-a[1])*toR;
+      const la1 = a[0]*toR, la2 = b[0]*toR;
+      const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;
+      return 2*R*Math.asin(Math.sqrt(h));
+    }
+
+    // =========================================================
+    // 位置情報（前面のときだけ更新＝こっそり追跡しない）
+    // =========================================================
+    function startGeolocation(){
+      if (!("geolocation" in navigator)) { toast("位置情報に対応していない端末です"); return; }
+      stopGeolocation();
+      watchId = navigator.geolocation.watchPosition(onPos, onPosErr, {
+        enableHighAccuracy: true, maximumAge: 5000, timeout: 20000,
+      });
+    }
+    function stopGeolocation(){ if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; } }
+    function onPos(pos){
+      if (!sessionId || !uid) return;
+      const { latitude, longitude, accuracy, heading } = pos.coords;
+      set(ref(db, `sessions/${sessionId}/locations/${uid}`), {
+        lat: latitude, lng: longitude, accuracy: accuracy ?? null,
+        heading: (heading == null || isNaN(heading)) ? null : heading,
+        updatedAt: Date.now(),
+      });
+    }
+    function onPosErr(err){
+      console.warn(err);
+      if (err.code === 1) toast("位置情報の利用が許可されていません");
+      else toast("位置を取得できませんでした");
+    }
+
+    // 前面/背面：背面では更新を止めて「一時停止」表示
+    document.addEventListener("visibilitychange", () => {
+      if (!$("screen-map").classList.contains("active")) return;
+      if (document.hidden) {
+        stopGeolocation();
+        $("shareBanner").classList.add("paused");
+        $("bannerSub").textContent = "アプリを離れたため一時停止中";
+      } else {
+        $("shareBanner").classList.remove("paused");
+        startGeolocation();
+      }
+    });
+
+    // =========================================================
+    // タイマー（残り時間 / 自動失効）
+    // =========================================================
+    function startTimer(){
+      clearInterval(timer);
+      timer = setInterval(() => {
+        const left = expiresAt - Date.now();
+        if (left <= 0) { endSession("共有時間が終了しました（自動）", true); return; }
+        const m = Math.floor(left/60000), s = Math.floor((left%60000)/1000);
+        $("timeLeft").textContent = `残り ${m}:${String(s).padStart(2,"0")}`;
+      }, 1000);
+    }
+
+    // =========================================================
+    // 地図操作
+    // =========================================================
+    $("btnRecenter").addEventListener("click", () => {
+      const pts = Object.values(markers).map(m => m.getLatLng());
+      if (meetPoint) pts.push(L.latLng(meetPoint.lat, meetPoint.lng));
+      if (pts.length >= 2) map.fitBounds(pts, { padding:[70,70], maxZoom:17 });
+      else if (pts.length === 1) map.setView(pts[0], 16);
+    });
+    $("btnEnd").addEventListener("click", () => {
+      if (confirm("位置の共有を終了しますか？")) endSession("共有を終了しました", true);
+    });
+
+    // =========================================================
+    // 終了処理
+    // =========================================================
+    async function endSession(msg, markEnded){
+      try {
+        if (sessionId && uid) await remove(ref(db, `sessions/${sessionId}/locations/${uid}`));
+        if (markEnded && sessionId) await update(ref(db, `sessions/${sessionId}/meta`), { status: "ended" });
+      } catch(e){ console.warn(e); }
+      cleanup();
+      showEnded("共有を終了しました", msg);
+    }
+    function showEnded(title, msg){
+      cleanup();
+      $("endedTitle").textContent = title;
+      $("endedMsg").textContent = msg;
+      showScreen("ended");
+    }
+    function cleanup(){
+      stopGeolocation();
+      clearInterval(timer); timer = null;
+      clearListeners();
+      if (map) {
+        Object.values(markers).forEach(m=>map.removeLayer(m)); markers = {};
+        Object.values(circles).forEach(c=>map.removeLayer(c)); circles = {};
+        Object.values(lines).forEach(l=>map.removeLayer(l)); lines = {};
+        if (meetMarker){ map.removeLayer(meetMarker); meetMarker=null; }
+      }
+      disableCompass();
+      meetPoint = null; settingMeet = false; mergeStates = {};
+      lastMe = null; focusUid = null; members = {}; latestLocs = {};
+      $("btnMeet").classList.remove("active");
+      $("roster").style.display = "none"; $("roster").innerHTML = "";
+      $("notes").innerHTML = "";
+      $("meetPill").style.display = "none";
+      $("dirWidget").style.display = "none";
+      $("meetPanel").style.display = "none";
+      $("statusPanel").style.display = "none";
+      $("shareBanner").classList.remove("paused","merged");
+    }
+    function clearListeners(){ unsub.forEach(u => { try { u(); } catch(_){} }); unsub = []; }
+
+    $("btnHome").addEventListener("click", () => {
+      sessionId = null; role = null;
+      window.history.replaceState({}, "", location.pathname);
+      showScreen("home");
+    });
+
+    // =========================================================
+    // ホーム画面に追加（PWA A2HS）
+    // =========================================================
+    let deferredPrompt = null;
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferredPrompt = e;   // Android(Chrome/Edge)のみ発火。後でユーザー操作時に prompt()
+      if ($("screen-invite").classList.contains("active")) maybeOfferInstall();
+    });
+    window.addEventListener("appinstalled", () => { localStorage.setItem("mm_installed","1"); hideA2HS(); });
+
+    function isStandalone(){ return window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true; }
+    function isIOS(){ return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); }
+    function isInAppBrowser(){ return /line\/|fban|fbav|instagram|micromessenger/i.test(navigator.userAgent); }
+
+    function maybeOfferInstall(){
+      if (isStandalone()) return;                        // 既にホーム画面アプリとして起動中
+      if (localStorage.getItem("mm_installed")) return;   // 追加済み
+      if (localStorage.getItem("mm_a2hs_off")) return;    // 「あとで」で今後表示しない
+      if (!(deferredPrompt || isIOS() || isInAppBrowser())) return;  // 追加できる見込みがある時だけ
+      showA2HS();
+    }
+    function showA2HS(){
+      $("a2hsIosGuide").style.display = "none";
+      $("a2hsActions").style.display = "flex";
+      const msg = $("a2hsMsg"), yes = $("a2hsYes");
+      if (isInAppBrowser() && !deferredPrompt) {
+        msg.textContent = "アプリ内ブラウザでは追加できません。右上のメニューから「ブラウザ（Safari / Chrome）で開く」を選ぶと追加できます。";
+        yes.style.display = "none";   // 追加ボタンは出さず案内のみ
+      } else if (isIOS()) {
+        msg.textContent = "「はい」を押すと、ホーム画面に追加する手順をご案内します。";
+        yes.style.display = "";
+      } else {
+        msg.textContent = "次回からアイコンをタップするだけで開けます。";
+        yes.style.display = "";
+      }
+      $("a2hs").style.display = "flex";
+    }
+    function hideA2HS(){ $("a2hs").style.display = "none"; }
+
+    $("a2hsYes").addEventListener("click", async () => {
+      if (deferredPrompt) {                 // Android：OS標準のインストールダイアログを表示
+        deferredPrompt.prompt();
+        try { const { outcome } = await deferredPrompt.userChoice; if (outcome === "accepted") localStorage.setItem("mm_installed","1"); } catch(_){}
+        deferredPrompt = null;
+        hideA2HS();
+      } else if (isIOS()) {                 // iOS：手動手順を表示（プログラムからの追加はOS制約で不可）
+        $("a2hsActions").style.display = "none";
+        $("a2hsIosGuide").style.display = "block";
+      } else {
+        toast("ブラウザのメニューから「ホーム画面に追加」を選んでください");
+        hideA2HS();
+      }
+    });
+    $("a2hsNo").addEventListener("click", () => { localStorage.setItem("mm_a2hs_off","1"); hideA2HS(); });
+    $("a2hsIosClose").addEventListener("click", hideA2HS);
+
+    // =========================================================
+    // Service Worker（PWA）
+    // =========================================================
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("sw.js").catch(()=>{});
+    }
+    console.log("集GO", APP_VERSION);
+  </script>
+</body>
+</html>

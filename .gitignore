@@ -1,0 +1,7 @@
+# テスト専用（本番公開しない）
+test.html
+firebase-mock.js
+
+# OS / エディタ
+.DS_Store
+Thumbs.db
