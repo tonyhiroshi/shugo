@@ -243,6 +243,11 @@
     .chip:hover { filter:brightness(1.12); }
     .chip.clear { border-color: rgba(229,72,77,.5); color:#f3a0a2; }
     #meetEta { color: var(--muted); margin-left:4px; }
+    /* QRコード */
+    .qr-wrap { display:flex; flex-direction:column; align-items:center; gap:8px; margin-top:16px; }
+    .qr-box { background:#fff; padding:12px; border-radius:14px; line-height:0; box-shadow: var(--shadow); }
+    .qr-box img, .qr-box canvas { display:block; width:176px; height:176px; }
+    .qr-cap { font-size:12px; color:var(--muted); text-align:center; }
   </style>
 </head>
 <body>
@@ -317,6 +322,10 @@
           <div class="stack" style="margin-top:14px;">
             <button id="btnLine" class="btn line">LINEで送る / 共有</button>
             <button id="btnCopy" class="btn ghost">リンクをコピー</button>
+          </div>
+          <div class="qr-wrap">
+            <div class="qr-box"><div id="qrCreated"></div></div>
+            <div class="qr-cap">相手にこのQRコードを読み取ってもらってもOK</div>
           </div>
         </div>
 
@@ -416,6 +425,10 @@
             <button id="btnLine2" class="btn line">LINEで送る / 共有</button>
             <button id="btnCopy2" class="btn ghost">リンクをコピー</button>
           </div>
+          <div class="qr-wrap">
+            <div class="qr-box"><div id="qrInvite"></div></div>
+            <div class="qr-cap">相手にQRコードを読み取ってもらってもOK</div>
+          </div>
         </div>
       </div>
 
@@ -466,6 +479,8 @@
 
   <!-- Leaflet JS (CDN) -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- QRコード生成 (CDN, クライアント内で生成＝URLを外部送信しない) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
   <script type="module">
     /* ============================================================
@@ -491,7 +506,7 @@
     // ▲▲▲ ここまで貼り替え ▲▲▲
 
     const SESSION_TTL_MS = 2 * 60 * 60 * 1000;   // 共有の有効時間（2時間で自動失効）
-    const APP_VERSION = "2026.06.24.9";
+    const APP_VERSION = "2026.06.24.10";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -607,6 +622,7 @@
       onDisconnect(ref(db, `sessions/${sessionId}/locations/${uid}`)).remove();
 
       $("inviteUrl").textContent = inviteUrlStr();
+      renderQR($("qrCreated"), inviteUrlStr());
       showScreen("created");
       listenSession();   // 相手の参加・承認を待つ
     }
@@ -625,6 +641,14 @@
       }
     }
     async function copyInvite(){ await navigator.clipboard.writeText(inviteUrlStr()); toast("リンクをコピーしました"); }
+    // 招待リンクのQRコードを生成（クライアント内・外部送信なし）
+    function renderQR(el, url){
+      if (!el) return;
+      el.innerHTML = "";
+      if (!window.QRCode) { el.innerHTML = '<div class="qr-cap">QRを生成できませんでした</div>'; return; }
+      try { new QRCode(el, { text: url, width: 176, height: 176, colorDark: "#10151f", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.M }); }
+      catch(e){ console.warn("QR生成失敗", e); }
+    }
     $("btnLine").addEventListener("click", shareInvite);
     $("btnCopy").addEventListener("click", copyInvite);
     $("btnLine2").addEventListener("click", shareInvite);
@@ -852,7 +876,7 @@
       const open = $("invitePanel").style.display === "block";
       closeMeetPanel(); $("statusPanel").style.display = "none";
       if (open) { $("invitePanel").style.display = "none"; }
-      else { $("inviteUrl2").textContent = inviteUrlStr(); $("invitePanel").style.display = "block"; }
+      else { $("inviteUrl2").textContent = inviteUrlStr(); renderQR($("qrInvite"), inviteUrlStr()); $("invitePanel").style.display = "block"; }
     });
     $("inviteClose").addEventListener("click", () => { $("invitePanel").style.display = "none"; });
 
