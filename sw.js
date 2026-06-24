@@ -1,5 +1,5 @@
 /* 集GO Service Worker（network-first / 自動更新） */
-const VERSION = "2026.06.24.10";
+const VERSION = "2026.06.24.11";
 const CACHE = "shugo-" + VERSION;
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icon.svg"];
 
