@@ -506,7 +506,7 @@
     // ▲▲▲ ここまで貼り替え ▲▲▲
 
     const SESSION_TTL_MS = 2 * 60 * 60 * 1000;   // 共有の有効時間（2時間で自動失効）
-    const APP_VERSION = "2026.06.24.11";
+    const APP_VERSION = "2026.06.24.12";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -591,6 +591,9 @@
       // 進行中の待ち合わせが保存されていれば自動で復帰する
       const saved = loadSavedSession();
       if (saved && saved.sessionId && await tryResume(saved)) return;
+      // 参加済みセッションが無くても、開いた招待（未承認）が残っていればその招待に戻す
+      const pend = localStorage.getItem("mm_pending_invite");
+      if (pend) { openInvite(pend); return; }
       showScreen("home");
     }
     let pendingSid = null;
@@ -598,15 +601,16 @@
     // ---- 進行中セッションの保存／復帰（PWA起動や再読込で離脱しないように） ----
     function saveSession(){ try { localStorage.setItem("mm_session", JSON.stringify({ sessionId, role })); } catch(_){} }
     function loadSavedSession(){ try { return JSON.parse(localStorage.getItem("mm_session") || "null"); } catch(_){ return null; } }
-    function clearSavedSession(){ try { localStorage.removeItem("mm_session"); } catch(_){} }
+    function clearActiveSession(){ try { localStorage.removeItem("mm_session"); } catch(_){} }   // 参加済みセッションのみ削除（pendingは残す）
+    function clearSavedSession(){ try { localStorage.removeItem("mm_session"); localStorage.removeItem("mm_pending_invite"); } catch(_){} }
     async function tryResume(saved){
       try {
         const msnap = await get(ref(db, `sessions/${saved.sessionId}/meta`));
-        if (!msnap.exists()) { clearSavedSession(); return false; }
+        if (!msnap.exists()) { clearActiveSession(); return false; }
         const meta = msnap.val();
-        if (meta.status === "ended" || (meta.expiresAt && Date.now() > meta.expiresAt)) { clearSavedSession(); return false; }
+        if (meta.status === "ended" || (meta.expiresAt && Date.now() > meta.expiresAt)) { clearActiveSession(); return false; }
         const psnap = await get(ref(db, `sessions/${saved.sessionId}/participants/${uid}`));
-        if (!psnap.exists()) { clearSavedSession(); return false; }   // もう参加者でない
+        if (!psnap.exists()) { clearActiveSession(); return false; }   // もう参加者でない（pendingの招待は保持）
         sessionId = saved.sessionId;
         role = (psnap.val() && psnap.val().role) || saved.role || "guest";
         expiresAt = meta.expiresAt || (Date.now() + SESSION_TTL_MS);
@@ -687,6 +691,7 @@
     // =========================================================
     async function openInvite(sid){
       sessionId = sid; role = "guest";
+      try { localStorage.setItem("mm_pending_invite", sid); } catch(_){}   // 未承認でも起動時に招待へ戻れるよう記憶
       const snap = await get(ref(db, `sessions/${sid}/meta`));
       if (!snap.exists()) { showEnded("招待が見つかりません", "リンクが正しいか、すでに終了していないか確認してください。"); return; }
       const meta = snap.val();
@@ -752,6 +757,7 @@
     function startSharing(){
       showScreen("map");
       saveSession();   // 再読込・ホーム画面起動でも地図に復帰できるよう保存
+      try { localStorage.removeItem("mm_pending_invite"); } catch(_){}   // 参加したので「未承認の招待」は解除
       if (!map) initMap();
       else setTimeout(()=>map.invalidateSize(), 80);
       fitted = false; mergeStates = {};
