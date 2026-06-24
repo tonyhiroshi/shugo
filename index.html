@@ -126,7 +126,8 @@
       position: absolute; left: 12px; right: 12px; bottom: max(14px, env(safe-area-inset-bottom));
       z-index: 1000; display:flex; flex-direction: column; gap: 8px;
     }
-    .map-bottom .row { display:flex; gap: 8px; }
+    .map-bottom .row { display:flex; gap: 7px; }
+    .map-bottom .row .btn { padding: 13px 4px; font-size: 13.5px; }
     .map-bottom .btn { box-shadow: var(--shadow); }
     /* 地図上のボタンは半透明パネル背景で視認性を確保 */
     .map-bottom .btn.ghost { background: rgba(23,29,43,.92); backdrop-filter: blur(6px); border-color: #2b3548; }
@@ -405,8 +406,22 @@
         </div>
       </div>
 
+      <!-- 招待パネル（地図からいつでも招待リンクを共有） -->
+      <div id="invitePanel" class="sheet" style="display:none;">
+        <div class="sheet-head">メンバーを招待 <button id="inviteClose" class="x">✕</button></div>
+        <div class="sheet-body">
+          <div class="hint">このリンクを送ると、相手が承認してこのグループに参加できます（最大5人）。</div>
+          <div class="link-box" style="margin-top:10px;"><code id="inviteUrl2">—</code></div>
+          <div class="stack" style="margin-top:12px;">
+            <button id="btnLine2" class="btn line">LINEで送る / 共有</button>
+            <button id="btnCopy2" class="btn ghost">リンクをコピー</button>
+          </div>
+        </div>
+      </div>
+
       <div class="map-bottom">
         <div class="row">
+          <button id="btnInvite" class="btn ghost" style="flex:1;">👥 招待</button>
           <button id="btnMeet" class="btn ghost" style="flex:1;">📍 集合</button>
           <button id="btnStatus" class="btn ghost" style="flex:1;">💬 状況</button>
           <button id="btnRecenter" class="btn ghost" style="flex:1;">◎ 中央</button>
@@ -476,7 +491,7 @@
     // ▲▲▲ ここまで貼り替え ▲▲▲
 
     const SESSION_TTL_MS = 2 * 60 * 60 * 1000;   // 共有の有効時間（2時間で自動失効）
-    const APP_VERSION = "2026.06.24.8";
+    const APP_VERSION = "2026.06.24.9";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -591,15 +606,15 @@
       // 退出時に自分の位置を消す
       onDisconnect(ref(db, `sessions/${sessionId}/locations/${uid}`)).remove();
 
-      const url = `${location.origin}${location.pathname}?s=${sessionId}`;
-      $("inviteUrl").textContent = url;
+      $("inviteUrl").textContent = inviteUrlStr();
       showScreen("created");
       listenSession();   // 相手の参加・承認を待つ
     }
 
-    // 招待リンク共有
-    $("btnLine").addEventListener("click", async () => {
-      const url = $("inviteUrl").textContent;
+    // 招待リンク共有（作成画面・地図画面の両方から使う）
+    function inviteUrlStr(){ return `${location.origin}${location.pathname}?s=${sessionId}`; }
+    async function shareInvite(){
+      const url = inviteUrlStr();
       const text = `${myName}さんから「集GO」待ち合わせの招待です。リンクを開いて承認すると、地図でお互いの現在地が見られます。\n${url}`;
       if (navigator.share) {
         try { await navigator.share({ title: "集GO", text }); }
@@ -608,11 +623,12 @@
         await navigator.clipboard.writeText(text);
         toast("メッセージをコピーしました。LINEに貼り付けて送ってください");
       }
-    });
-    $("btnCopy").addEventListener("click", async () => {
-      await navigator.clipboard.writeText($("inviteUrl").textContent);
-      toast("リンクをコピーしました");
-    });
+    }
+    async function copyInvite(){ await navigator.clipboard.writeText(inviteUrlStr()); toast("リンクをコピーしました"); }
+    $("btnLine").addEventListener("click", shareInvite);
+    $("btnCopy").addEventListener("click", copyInvite);
+    $("btnLine2").addEventListener("click", shareInvite);
+    $("btnCopy2").addEventListener("click", copyInvite);
     $("btnCancel").addEventListener("click", () => { endSession("ホストが招待をキャンセルしました", true); });
     $("btnOpenMap").addEventListener("click", () => { startSharing(); });
 
@@ -687,6 +703,7 @@
       $("meetPill").style.display = "none";
       $("meetPanel").style.display = "none";
       $("statusPanel").style.display = "none";
+      $("invitePanel").style.display = "none";
       listenSession();
       listenLocations();
       listenMeetPoint();
@@ -748,6 +765,7 @@
     // ---- 集合場所パネル（検索 / 地図タップ / 解除） ----
     function openMeetPanel(){
       $("statusPanel").style.display = "none";
+      $("invitePanel").style.display = "none";
       $("meetPanel").style.display = "block";
       $("meetClear").style.display = meetPoint ? "block" : "none";
       $("meetResults").innerHTML = "";
@@ -823,11 +841,20 @@
     }
     $("btnStatus").addEventListener("click", () => {
       const open = $("statusPanel").style.display === "block";
-      $("meetPanel").style.display = "none"; closeMeetPanel();
+      closeMeetPanel(); $("invitePanel").style.display = "none";
       if (open) { $("statusPanel").style.display = "none"; }
       else { buildStatusChips(); $("statusPanel").style.display = "block"; }
     });
     $("statusClose").addEventListener("click", () => { $("statusPanel").style.display = "none"; });
+
+    // ---- 招待パネル（地図からいつでも招待） ----
+    $("btnInvite").addEventListener("click", () => {
+      const open = $("invitePanel").style.display === "block";
+      closeMeetPanel(); $("statusPanel").style.display = "none";
+      if (open) { $("invitePanel").style.display = "none"; }
+      else { $("inviteUrl2").textContent = inviteUrlStr(); $("invitePanel").style.display = "block"; }
+    });
+    $("inviteClose").addEventListener("click", () => { $("invitePanel").style.display = "none"; });
 
     // ---- 相手の方向コンパス ----
     function bearing(from, to){
@@ -1149,6 +1176,7 @@
       $("dirWidget").style.display = "none";
       $("meetPanel").style.display = "none";
       $("statusPanel").style.display = "none";
+      $("invitePanel").style.display = "none";
       $("shareBanner").classList.remove("paused","merged");
     }
     function clearListeners(){ unsub.forEach(u => { try { u(); } catch(_){} }); unsub = []; }
