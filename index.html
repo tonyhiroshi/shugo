@@ -302,6 +302,10 @@
           ・一定時間で自動的に共有が終了します<br>
           ・位置の履歴は保存しません（今いる場所だけ）
         </div>
+        <div id="linkTip" class="notice" style="display:none; margin-top:12px;">
+          💡 <span style="color:var(--accent-2); font-weight:700;">ヒント</span>：Androidの「<b>対応リンクを開く（既定で開く）</b>」をオンにすると、LINEなどの招待リンクがこのアプリで直接開きます。
+          <div style="margin-top:8px;"><a href="#" id="linkTipClose" style="color:var(--muted)">閉じる</a></div>
+        </div>
         <div class="hint" style="text-align:center; margin-top:14px;">
           <a href="#" id="changeName" style="color:var(--muted)">表示名を変更</a>
         </div>
@@ -506,7 +510,7 @@
     // ▲▲▲ ここまで貼り替え ▲▲▲
 
     const SESSION_TTL_MS = 2 * 60 * 60 * 1000;   // 共有の有効時間（2時間で自動失効）
-    const APP_VERSION = "2026.06.24.12";
+    const APP_VERSION = "2026.06.24.13";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -514,6 +518,7 @@
     function showScreen(name){
       $("loader").style.display = "none";
       screens.forEach(s => $("screen-"+s).classList.toggle("active", s===name));
+      if (name === "home") maybeShowLinkTip();
     }
     let toastTimer;
     function toast(msg){
@@ -586,6 +591,8 @@
         return;
       }
       $("homeName").textContent = myName;
+      // インストール済みアプリに招待URLが渡された場合（launchQueueでURLを受信）を優先
+      if (launchSid) { const s = launchSid; launchSid = null; openInvite(s); return; }
       if (sid) { openInvite(sid); return; }
       // ?s= が無い場合（ホーム画面アイコンから起動・再読込など）：
       // 進行中の待ち合わせが保存されていれば自動で復帰する
@@ -597,6 +604,20 @@
       showScreen("home");
     }
     let pendingSid = null;
+
+    // インストール済みアプリ（standalone）に範囲内リンクが渡されたら、今のアプリで招待を受け取る
+    let launchSid = null;
+    if ("launchQueue" in window && window.launchQueue && window.launchQueue.setConsumer) {
+      try {
+        window.launchQueue.setConsumer((p) => {
+          const url = p && p.targetURL; if (!url) return;
+          let s = null; try { s = new URL(url).searchParams.get("s"); } catch(_){}
+          if (!s) return;
+          if (s === new URLSearchParams(location.search).get("s")) return; // boot が処理済み
+          if (uid) openInvite(s); else launchSid = s;   // 認証前なら保留
+        });
+      } catch(_){}
+    }
 
     // ---- 進行中セッションの保存／復帰（PWA起動や再読込で離脱しないように） ----
     function saveSession(){ try { localStorage.setItem("mm_session", JSON.stringify({ sessionId, role })); } catch(_){} }
@@ -1268,6 +1289,18 @@
     function isStandalone(){ return window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true; }
     function isIOS(){ return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); }
     function isInAppBrowser(){ return /line\/|fban|fbav|instagram|micromessenger/i.test(navigator.userAgent); }
+    function isAndroid(){ return /android/i.test(navigator.userAgent); }
+
+    // インストール済みAndroidユーザーに「対応リンクを開く」設定の案内を一度だけ表示
+    function maybeShowLinkTip(){
+      const el = $("linkTip"); if (!el) return;
+      el.style.display = (isStandalone() && isAndroid() && !localStorage.getItem("mm_linktip_off")) ? "block" : "none";
+    }
+    $("linkTipClose").addEventListener("click", (e) => {
+      e.preventDefault();
+      try { localStorage.setItem("mm_linktip_off", "1"); } catch(_){}
+      $("linkTip").style.display = "none";
+    });
 
     function maybeOfferInstall(){
       if (isStandalone()) return;                        // 既にホーム画面アプリとして起動中
