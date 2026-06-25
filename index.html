@@ -216,6 +216,20 @@
     .member-chip .mdist { color: var(--muted); }
     .member-chip.focused { outline:2px solid var(--accent-2); outline-offset:-1px; }
     #meetPill { bottom: calc(182px + env(safe-area-inset-bottom)); }
+    /* 集合状況ボード */
+    .banner.clickable { cursor:pointer; }
+    .banner-chev { color:var(--muted); font-size:20px; font-weight:700; line-height:1; padding-left:2px; flex:none; }
+    .board-list { display:flex; flex-direction:column; gap:8px; max-height:52vh; overflow:auto; }
+    .board-row { display:flex; align-items:center; gap:10px; background:var(--panel-2);
+      border:1px solid #2b3548; border-radius:12px; padding:10px 12px; }
+    .board-row .cdot { width:11px; height:11px; border-radius:50%; flex:none; }
+    .board-row .bname { font-size:14px; font-weight:600; }
+    .board-row .bsub { font-size:12px; color:var(--muted); font-weight:400; }
+    .badge { font-size:12px; font-weight:700; padding:4px 10px; border-radius:999px; white-space:nowrap; flex:none; }
+    .badge.arrived { background:rgba(47,191,113,.18); color:#7ee2a8; border:1px solid rgba(47,191,113,.5); }
+    .badge.sharing { background:rgba(31,111,235,.20); color:#9dc1ff; border:1px solid rgba(31,111,235,.5); }
+    .badge.offline { background:rgba(154,166,184,.14); color:#aab4c4; border:1px solid rgba(154,166,184,.4); }
+    .badge.left { background:rgba(154,166,184,.10); color:#7b879b; border:1px solid #2b3548; }
     /* 方向コンパス */
     .dir-widget {
       position:absolute; right:12px; z-index:1000; display:flex; align-items:center; gap:10px;
@@ -388,13 +402,14 @@
     <section id="screen-map" class="screen">
       <div id="map"></div>
       <div class="map-top">
-        <div id="shareBanner" class="banner">
+        <div id="shareBanner" class="banner clickable">
           <div class="dot"></div>
           <div class="txt">
             <div class="t1" id="bannerTitle">グループ共有中</div>
             <div class="t2" id="bannerSub">位置を取得しています…</div>
           </div>
           <div style="font-variant-numeric: tabular-nums; font-size:13px; color:var(--muted);" id="timeLeft">—</div>
+          <div class="banner-chev">›</div>
         </div>
         <div id="notes" class="notes"></div>
       </div>
@@ -436,6 +451,14 @@
             <input id="statusInput" type="text" maxlength="40" placeholder="自由に入力（例：北口の改札にいます）" autocomplete="off" />
             <button id="statusSend" class="btn primary" style="width:auto; padding:12px 16px;">送信</button>
           </div>
+        </div>
+      </div>
+
+      <!-- 集合状況ボード（バナーをタップで開く） -->
+      <div id="boardPanel" class="sheet" style="display:none;">
+        <div class="sheet-head">集合状況 <button id="boardClose" class="x">✕</button></div>
+        <div class="sheet-body">
+          <div id="boardList" class="board-list"></div>
         </div>
       </div>
 
@@ -530,7 +553,7 @@
     // ▲▲▲ ここまで貼り替え ▲▲▲
 
     const SESSION_TTL_MS = 1 * 60 * 60 * 1000;   // 共有の有効時間（1時間で自動失効）
-    const APP_VERSION = "2026.06.25.5";
+    const APP_VERSION = "2026.06.25.6";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -565,6 +588,8 @@
     let meetPoint = null, meetMarker = null, settingMeet = false;
     let mergeStates = {};          // uid -> 0:離れている 1:接近中 2:合流済み
     const NEAR_M = 50, MERGE_M = 20;  // 接近/合流の距離しきい値(m)
+    const ARRIVE_M = 30;              // 集合場所への「集合済み」判定の距離(m)
+    const FRESH_MS = 90 * 1000;       // 位置がこの時間より新しければ「共有中」
     let lastMe = null;             // 直近の自分の座標
     let compassEnabled = false, compassHeading = null;  // 端末コンパス
     let members = {};              // uid -> participant({name,role,note,...})
@@ -651,7 +676,7 @@
         const meta = msnap.val();
         if (meta.status === "ended" || (meta.expiresAt && Date.now() > meta.expiresAt)) { clearActiveSession(); return false; }
         const psnap = await get(ref(db, `sessions/${saved.sessionId}/participants/${uid}`));
-        if (!psnap.exists()) { clearActiveSession(); return false; }   // もう参加者でない（pendingの招待は保持）
+        if (!psnap.exists() || psnap.val().left) { clearActiveSession(); return false; }   // 参加者でない/退室済み（pendingの招待は保持）
         sessionId = saved.sessionId;
         role = (psnap.val() && psnap.val().role) || saved.role || "guest";
         expiresAt = meta.expiresAt || (Date.now() + SESSION_TTL_MS);
@@ -742,15 +767,15 @@
       const cap = meta.maxMembers || MAX_MEMBERS;
       const psnap = await get(ref(db, `sessions/${sid}/participants`));
       const cur = psnap.val() || {};
-      // 既に参加済みなら承認画面を出さず地図へ復帰（再読込・ホーム画面起動・リンク再オープン対策）
-      if (uid in cur) {
+      // 既に参加済み（退室していない）なら承認画面を出さず地図へ復帰
+      if (uid in cur && !cur[uid].left) {
         role = (cur[uid] && cur[uid].role) || "guest";
         expiresAt = meta.expiresAt || (Date.now() + SESSION_TTL_MS);
         onDisconnect(ref(db, `sessions/${sid}/locations/${uid}`)).remove();
         startSharing();
         return;
       }
-      if (Object.keys(cur).length >= cap) { showEnded("満員です", `このグループは満員（最大${cap}人）です。`); return; }
+      if (activeCount(cur) >= cap) { showEnded("満員です", `このグループは満員（最大${cap}人）です。`); return; }
 
       $("inviteHost").textContent = meta.hostName || "相手";
       $("inviteAvatar").textContent = initials(meta.hostName);
@@ -758,13 +783,14 @@
       showScreen("invite");
     }
     $("btnApprove").addEventListener("click", async () => {
-      // 満員チェック（best-effort）
+      // 満員チェック（best-effort）。退室済みは現員に数えない
       const psnap = await get(ref(db, `sessions/${sessionId}/participants`));
       const cur = psnap.val() || {};
-      if (!(uid in cur) && Object.keys(cur).length >= MAX_MEMBERS) {
+      const amActive = (uid in cur) && !cur[uid].left;
+      if (!amActive && activeCount(cur) >= MAX_MEMBERS) {
         showEnded("満員です", `このグループは満員（最大${MAX_MEMBERS}人）です。`); return;
       }
-      // 先に参加者登録 → その後 status を更新（ルール上 status は「参加者のみ」書込可のため順序が重要）
+      // 先に参加者登録（再参加時は left マークも消える） → その後 status を更新
       await set(ref(db, `sessions/${sessionId}/participants/${uid}`),
         { name: myName, role: "guest", approved: true, joinedAt: serverTimestamp() });
       await update(ref(db, `sessions/${sessionId}/meta`), { status: "active" });
@@ -810,6 +836,7 @@
       $("meetPanel").style.display = "none";
       $("statusPanel").style.display = "none";
       $("invitePanel").style.display = "none";
+      $("boardPanel").style.display = "none";
       listenSession();
       listenLocations();
       listenMeetPoint();
@@ -875,6 +902,7 @@
     function openMeetPanel(){
       $("statusPanel").style.display = "none";
       $("invitePanel").style.display = "none";
+      $("boardPanel").style.display = "none";
       $("meetPanel").style.display = "block";
       $("meetLabel").value = (meetPoint && meetPoint.label) || "";
       $("meetClear").style.display = meetPoint ? "block" : "none";
@@ -959,7 +987,7 @@
     }
     $("btnStatus").addEventListener("click", () => {
       const open = $("statusPanel").style.display === "block";
-      closeMeetPanel(); $("invitePanel").style.display = "none";
+      closeMeetPanel(); $("invitePanel").style.display = "none"; $("boardPanel").style.display = "none";
       if (open) { $("statusPanel").style.display = "none"; }
       else { buildStatusChips(); $("statusInput").value = ""; $("statusPanel").style.display = "block"; }
     });
@@ -976,7 +1004,7 @@
     // ---- 招待パネル（地図からいつでも招待） ----
     $("btnInvite").addEventListener("click", () => {
       const open = $("invitePanel").style.display === "block";
-      closeMeetPanel(); $("statusPanel").style.display = "none";
+      closeMeetPanel(); $("statusPanel").style.display = "none"; $("boardPanel").style.display = "none";
       if (open) { $("invitePanel").style.display = "none"; }
       else { $("inviteUrl2").textContent = inviteUrlStr(); renderQR($("qrInvite"), inviteUrlStr()); $("invitePanel").style.display = "block"; }
     });
@@ -1076,6 +1104,7 @@
       updateNearestAndMerge(locs);
       updateDirection();
       updateMeetInfo(locs);
+      if ($("boardPanel").style.display === "block") renderBoard();   // ボード表示中は同時更新
 
       if (!fitted && pts.length) {
         const all = pts.slice();
@@ -1102,7 +1131,7 @@
     // メンバー一覧チップ（色・名前・自分からの距離）。タップでフォーカス
     function renderRoster(locs){
       const el = $("roster");
-      const ids = Object.keys(members);
+      const ids = Object.keys(members).filter(id => !members[id].left);   // 退室者は下部チップに出さない
       if (!ids.length) { el.style.display = "none"; return; }
       el.style.display = "flex"; el.innerHTML = "";
       const me = locs[uid];
@@ -1140,9 +1169,57 @@
     }
 
     function updateBannerTitle(){
-      const n = Object.keys(members).length;
+      const n = activeCount(members);
       $("bannerTitle").textContent = n >= 2 ? `グループ共有中・${n}人` : "共有中";
     }
+
+    // ---- 集合状況ボード（集合済み/共有中/オフライン/退室） ----
+    function memberStatus(id){
+      const m = members[id];
+      if (m && m.left) return { key:"left", label:"退室" };
+      const l = latestLocs[id];
+      if (l && typeof l.lat === "number" && meetPoint && haversine([l.lat,l.lng],[meetPoint.lat,meetPoint.lng]) <= ARRIVE_M)
+        return { key:"arrived", label:"集合済み" };
+      const fresh = l && typeof l.updatedAt === "number" && (Date.now() - l.updatedAt) < FRESH_MS;
+      if (fresh) return { key:"sharing", label:"共有中" };
+      return { key:"offline", label:"オフライン" };
+    }
+    function renderBoard(){
+      const el = $("boardList"); if (!el) return;
+      const ids = Object.keys(members);
+      if (!ids.length) { el.innerHTML = '<div class="bsub" style="text-align:center;padding:14px;">まだ誰もいません</div>'; return; }
+      const order = { arrived:0, sharing:1, offline:2, left:3 };
+      ids.sort((x,y) => {
+        const ox = order[memberStatus(x).key], oy = order[memberStatus(y).key];
+        if (ox !== oy) return ox - oy;
+        return (x===uid ? -1 : (y===uid ? 1 : 0));
+      });
+      const me = latestLocs[uid];
+      el.innerHTML = "";
+      ids.forEach(id => {
+        const m = members[id]; if (!m) return;
+        const st = memberStatus(id), isMe = id === uid;
+        let sub = "";
+        if (!isMe && !m.left && me && latestLocs[id] && typeof latestLocs[id].lat === "number")
+          sub = `自分から ${fmtDist(haversine([me.lat,me.lng],[latestLocs[id].lat,latestLocs[id].lng]))}`;
+        if (m.note) sub = (sub ? sub + " ・ " : "") + `💬 ${escapeHtml(m.note)}`;
+        const row = document.createElement("div"); row.className = "board-row";
+        row.innerHTML =
+          `<span class="cdot" style="background:${m.left ? '#3a465c' : colorFor(id)}"></span>` +
+          `<div style="flex:1; min-width:0;"><div class="bname">${isMe ? "あなた" : escapeHtml(m.name||"相手")}${m.role==='host' ? ' <span class="bsub">（ホスト）</span>' : ''}</div>${sub ? `<div class="bsub">${sub}</div>` : ''}</div>` +
+          `<span class="badge ${st.key}">${st.label}</span>`;
+        el.appendChild(row);
+      });
+    }
+    function openBoard(){
+      closeMeetPanel();
+      $("statusPanel").style.display = "none";
+      $("invitePanel").style.display = "none";
+      renderBoard();
+      $("boardPanel").style.display = "block";
+    }
+    $("shareBanner").addEventListener("click", openBoard);
+    $("boardClose").addEventListener("click", () => { $("boardPanel").style.display = "none"; });
 
     // 最寄りメンバーの算出＋メンバー別の合流判定
     function updateNearestAndMerge(locs){
@@ -1273,12 +1350,15 @@
       const sid = sessionId, u = uid;
       try {
         if (sid && u) {
-          await remove(ref(db, `sessions/${sid}/participants/${u}`));
+          // 参加者は残し「退室」マークを付ける（状況ボードに「退室」として表示するため）。位置は削除。
+          await update(ref(db, `sessions/${sid}/participants/${u}`), { left: true, leftAt: Date.now() });
           await remove(ref(db, `sessions/${sid}/locations/${u}`));
         }
       } catch(e){ console.warn(e); }
       showEnded("共有を終了しました", msg);
     }
+    // 退室していない（=現在の）参加者の人数
+    function activeCount(p){ return Object.values(p || {}).filter(x => x && !x.left).length; }
     // セッション全体を終了：status=ended にして全員を終了させる（ホストの招待キャンセル等）。
     async function endSession(msg, markEnded){
       try {
@@ -1316,6 +1396,7 @@
       $("meetPanel").style.display = "none";
       $("statusPanel").style.display = "none";
       $("invitePanel").style.display = "none";
+      $("boardPanel").style.display = "none";
       $("shareBanner").classList.remove("paused","merged");
     }
     function clearListeners(){ unsub.forEach(u => { try { u(); } catch(_){} }); unsub = []; }
