@@ -182,6 +182,13 @@
     .pin.them { background: #8b5cf6; }
     .pin.meet { background: var(--warn); border-radius: 50%; transform: none; }
     .pin.meet span { transform: none; }
+    /* 集合ピンのメモ（Leafletツールチップ） */
+    .leaflet-tooltip.meet-tip {
+      background: rgba(23,29,43,.96); color:#fff; border:1px solid var(--warn);
+      border-radius:9px; padding:5px 10px; font-size:12.5px; font-weight:700;
+      box-shadow: var(--shadow); white-space: normal; max-width: 220px; text-align:center;
+    }
+    .leaflet-tooltip-top.meet-tip::before { border-top-color: rgba(23,29,43,.96); }
 
     /* メンバーの状況バブル（複数表示） */
     .notes { display:flex; flex-direction:column; gap:6px; }
@@ -408,13 +415,15 @@
       <div id="meetPanel" class="sheet" style="display:none;">
         <div class="sheet-head">集合場所を設定 <button id="meetClose" class="x">✕</button></div>
         <div class="sheet-body">
+          <input id="meetLabel" type="text" maxlength="40" placeholder="メモ（例：10時までに集合してね）" autocomplete="off" style="margin-bottom:10px;" />
           <div class="search-row">
             <input id="meetSearch" type="text" placeholder="駅・住所・店名で検索" autocomplete="off" />
             <button id="meetSearchBtn" class="btn primary" style="width:auto; padding:12px 16px;">検索</button>
           </div>
           <div id="meetResults" class="results"></div>
-          <div class="hint" style="margin-top:6px;">または地図を直接タップしても設定できます。</div>
-          <button id="meetClear" class="btn ghost" style="display:none; margin-top:12px;">集合場所を解除</button>
+          <div class="hint" style="margin-top:6px;">メモを入れて、検索結果を選ぶか地図をタップすると設定できます。</div>
+          <button id="meetLabelUpdate" class="btn ghost" style="display:none; margin-top:12px;">メモだけ更新</button>
+          <button id="meetClear" class="btn ghost" style="display:none; margin-top:10px;">集合場所を解除</button>
         </div>
       </div>
 
@@ -521,7 +530,7 @@
     // ▲▲▲ ここまで貼り替え ▲▲▲
 
     const SESSION_TTL_MS = 1 * 60 * 60 * 1000;   // 共有の有効時間（1時間で自動失効）
-    const APP_VERSION = "2026.06.25.3";
+    const APP_VERSION = "2026.06.25.4";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -815,7 +824,7 @@
       L.control.attribution({ prefix: false }).addAttribution("© OpenStreetMap").addTo(map);
       map.on("click", (e) => {
         if (!settingMeet) return;
-        writeMeetPoint(e.latlng.lat, e.latlng.lng);
+        writeMeetPoint(e.latlng.lat, e.latlng.lng, $("meetLabel").value);
         closeMeetPanel();
         toast("集合場所を設定しました");
       });
@@ -847,8 +856,8 @@
         if ($("screen-map").classList.contains("active")) renderAll();
       }));
     }
-    function writeMeetPoint(lat, lng){
-      set(ref(db, `sessions/${sessionId}/meetPoint`), { lat, lng, by: uid, at: Date.now() });
+    function writeMeetPoint(lat, lng, label){
+      set(ref(db, `sessions/${sessionId}/meetPoint`), { lat, lng, label: ((label||"").trim() || null), by: uid, at: Date.now() });
     }
     function renderMeetMarker(){
       if (!map) return;
@@ -857,6 +866,9 @@
         const icon = L.divIcon({ html: `<div class="pin meet"><span>📍</span></div>`, className: "", iconSize: [30,30], iconAnchor: [15,15] });
         if (!meetMarker) meetMarker = L.marker(ll, { icon }).addTo(map);
         else meetMarker.setLatLng(ll);
+        // メモを集合ピンの上にツールチップ表示（全員共有）
+        if (meetPoint.label) meetMarker.bindTooltip(escapeHtml(meetPoint.label), { permanent: true, direction: "top", offset: [0,-14], className: "meet-tip" });
+        else meetMarker.unbindTooltip();
       } else if (meetMarker) { map.removeLayer(meetMarker); meetMarker = null; }
     }
     // ---- 集合場所パネル（検索 / 地図タップ / 解除） ----
@@ -864,7 +876,9 @@
       $("statusPanel").style.display = "none";
       $("invitePanel").style.display = "none";
       $("meetPanel").style.display = "block";
+      $("meetLabel").value = (meetPoint && meetPoint.label) || "";
       $("meetClear").style.display = meetPoint ? "block" : "none";
+      $("meetLabelUpdate").style.display = meetPoint ? "block" : "none";
       $("meetResults").innerHTML = "";
       $("meetSearch").value = "";
       settingMeet = true;                 // 地図タップでも設定可
@@ -884,6 +898,13 @@
       set(ref(db, `sessions/${sessionId}/meetPoint`), null);
       closeMeetPanel();
       toast("集合場所を解除しました");
+    });
+    // 集合場所はそのまま、メモだけ更新
+    $("meetLabelUpdate").addEventListener("click", () => {
+      if (!meetPoint) return;
+      update(ref(db, `sessions/${sessionId}/meetPoint`), { label: ($("meetLabel").value.trim() || null) });
+      closeMeetPanel();
+      toast("メモを更新しました");
     });
 
     // 住所・場所検索（OpenStreetMap Nominatim）
@@ -906,7 +927,7 @@
           b.textContent = item.display_name;
           b.addEventListener("click", () => {
             const lat = parseFloat(item.lat), lng = parseFloat(item.lon);
-            writeMeetPoint(lat, lng);
+            writeMeetPoint(lat, lng, $("meetLabel").value);
             if (map) map.setView([lat,lng], 16);
             closeMeetPanel();
             toast("集合場所を設定しました");
