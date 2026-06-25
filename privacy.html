@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#1f6feb" />
+<title>プライバシーポリシー｜集GO</title>
+<style>
+  :root{ --bg:#0f1420; --panel:#171d2b; --text:#e7ecf3; --muted:#9aa6b8; --accent:#1f6feb; --accent-2:#3b82f6; --line:#232c3d; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Kaku Gothic ProN","Noto Sans JP",Meiryo,sans-serif; line-height:1.85; }
+  header{ background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:#fff; padding:16px; }
+  header a{ color:#dbe8ff; font-size:13px; text-decoration:none; }
+  header h1{ margin:6px 0 0; font-size:19px; }
+  main{ max-width:760px; margin:0 auto; padding:18px 16px 64px; }
+  .lead{ color:var(--muted); font-size:14px; }
+  h2{ font-size:15px; color:#fff; border-left:4px solid var(--accent-2); padding-left:10px; margin-top:30px; }
+  p,li{ font-size:14px; }
+  ul{ padding-left:20px; }
+  strong{ color:#fff; }
+  .note{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; font-size:13px; color:var(--muted); }
+  .note a{ color:var(--accent-2); }
+  .updated{ color:#7b879b; font-size:12px; margin-top:30px; }
+  footer{ text-align:center; padding:20px; font-size:12px; color:#7b879b; }
+</style>
+</head>
+<body>
+<header>
+  <a href="./">← アプリに戻る</a>
+  <h1>プライバシーポリシー</h1>
+</header>
+<main>
+  <p class="lead">本ポリシーは、待ち合わせアプリ「集GO」（以下「本サービス」）における利用者情報の取り扱いについて定めるものです。本サービスを利用された場合、本ポリシーに同意したものとみなします。</p>
+
+  <h2>1. 取得する情報</h2>
+  <ul>
+    <li><strong>表示名（ニックネーム）</strong>：相手の画面に表示するための名前。お使いの端末内（ブラウザ）に保存され、共有中はグループの参加者に表示されます。</li>
+    <li><strong>位置情報</strong>：共有中の現在地（緯度・経度・おおよその精度）。<strong>お使いのブラウザで位置情報の利用を許可した場合のみ</strong>取得します。</li>
+    <li><strong>匿名ID</strong>：端末ごとに自動で割り当てられる識別子（氏名・メールアドレス等の個人を特定する情報は含みません）。なりすまし防止・自分のデータの管理に使用します。</li>
+    <li><strong>利用者が設定した内容</strong>：集合場所、状況メッセージ（「向かっています」等）など。</li>
+  </ul>
+
+  <h2>2. 位置情報の取り扱い（重要）</h2>
+  <ul>
+    <li><strong>お互いが承認したグループ内でのみ</strong>共有されます（相手が承認するまであなたの位置は共有されません）。</li>
+    <li><strong>アプリを開いて前面にしている間だけ</strong>位置を更新します。アプリを離れると共有は自動的に一時停止します。</li>
+    <li><strong>位置の履歴は保存しません。</strong>「現在地」を上書きするだけで、移動の記録は残しません。</li>
+    <li>共有を終了したとき、またはアプリを閉じて接続が切れたとき、<strong>あなたの位置データは削除されます。</strong></li>
+    <li>共有は<strong>時間制限（作成から約1時間）</strong>で自動的に終了します。</li>
+  </ul>
+
+  <h2>3. 利用目的</h2>
+  <ul>
+    <li>待ち合わせ中に、お互いの現在地を地図上でリアルタイムに共有するため。</li>
+    <li>距離・方向・集合場所までの目安・状況メッセージを表示するため。</li>
+    <li>なりすましや不正利用を防止するため。</li>
+  </ul>
+
+  <h2>4. 第三者サービスの利用</h2>
+  <p>本サービスは以下の外部サービスを利用しており、機能の提供に必要な範囲でデータの送信が発生します。</p>
+  <ul>
+    <li><strong>Google Firebase</strong>（匿名認証・Realtime Database）：データの保存・同期に利用します。データはGoogleのサーバー（シンガポール／asia-southeast1）に保存されます。</li>
+    <li><strong>OpenStreetMap</strong>：地図の表示（地図タイルの取得）に利用します。</li>
+    <li><strong>OpenStreetMap Nominatim</strong>：集合場所の検索（住所・場所名からの位置取得）に利用します。検索した語句が送信されます。</li>
+    <li><strong>GitHub Pages</strong>：本サービスの配信（ホスティング）に利用します。</li>
+  </ul>
+  <p>これらのサービスには、それぞれの提供事業者のプライバシーポリシーが適用されます。なお、本サービスは<strong>広告およびアクセス解析（トラッキング）を利用していません。</strong></p>
+
+  <h2>5. 情報の保存・削除</h2>
+  <ul>
+    <li>位置情報は共有中のみ保持し、履歴は残しません。共有の終了・切断時に自分の位置データは削除されます。</li>
+    <li>セッション情報（招待ID・参加者の表示名・集合場所・状況メッセージ等）は、有効期限（約1時間）の経過後は無効になります（古いデータの自動削除は順次対応します）。</li>
+    <li>表示名はお使いの端末内に保存され、ブラウザのデータを消去することで削除できます。</li>
+    <li>その他、情報の削除をご希望の場合は下記連絡先までご連絡ください。</li>
+  </ul>
+
+  <h2>6. 安全管理</h2>
+  <p>取得した情報は、認証（匿名ログイン）とアクセス制御のもとで管理します。位置情報は「自分の情報は自分だけが書き込める」よう制限しています。ただし、インターネット上の通信・保存において完全な安全性を保証するものではありません。</p>
+
+  <h2>7. お子様の利用</h2>
+  <p>未成年の方が利用する場合は、保護者の同意のうえでご利用ください。位置情報の共有は、信頼できる相手とのみ行ってください。</p>
+
+  <h2>8. 本ポリシーの変更</h2>
+  <p>本ポリシーは、必要に応じて予告なく変更されることがあります。変更後の内容は本ページに掲載した時点で効力を生じます。</p>
+
+  <h2>9. お問い合わせ</h2>
+  <div class="note">本サービスおよび本ポリシーに関するお問い合わせ先：<br><a href="mailto:ozisans635@gmail.com">ozisans635@gmail.com</a></div>
+
+  <p class="updated">制定日：2026年6月25日</p>
+</main>
+<footer>集GO</footer>
+</body>
+</html>

@@ -1,7 +1,7 @@
 /* 集GO Service Worker（network-first / 自動更新） */
-const VERSION = "2026.06.25.1";
+const VERSION = "2026.06.25.2";
 const CACHE = "shugo-" + VERSION;
-const ASSETS = ["./", "./index.html", "./manifest.json", "./icon.svg"];
+const ASSETS = ["./", "./index.html", "./manifest.json", "./icon.svg", "./privacy.html", "./terms.html"];
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();

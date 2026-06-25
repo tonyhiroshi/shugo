@@ -274,6 +274,7 @@
             <input id="nameInput" type="text" maxlength="20" placeholder="例）たろう" autocomplete="off" />
           </div>
           <button id="nameSave" class="btn primary">はじめる</button>
+          <div class="hint" style="text-align:center; line-height:1.7;">「はじめる」を押すと <a href="terms.html" style="color:var(--accent-2)">利用規約</a>・<a href="privacy.html" style="color:var(--accent-2)">プライバシーポリシー</a> に同意したものとみなします。</div>
         </div>
       </div>
     </section>
@@ -308,6 +309,9 @@
         </div>
         <div class="hint" style="text-align:center; margin-top:14px;">
           <a href="#" id="changeName" style="color:var(--muted)">表示名を変更</a>
+        </div>
+        <div class="hint" style="text-align:center; margin-top:8px;">
+          <a href="privacy.html" style="color:var(--muted)">プライバシーポリシー</a> ・ <a href="terms.html" style="color:var(--muted)">利用規約</a>
         </div>
       </div>
     </section>
@@ -510,7 +514,7 @@
     // ▲▲▲ ここまで貼り替え ▲▲▲
 
     const SESSION_TTL_MS = 1 * 60 * 60 * 1000;   // 共有の有効時間（1時間で自動失効）
-    const APP_VERSION = "2026.06.25.1";
+    const APP_VERSION = "2026.06.25.2";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
