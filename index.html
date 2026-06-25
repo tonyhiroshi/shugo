@@ -530,7 +530,7 @@
     // ▲▲▲ ここまで貼り替え ▲▲▲
 
     const SESSION_TTL_MS = 1 * 60 * 60 * 1000;   // 共有の有効時間（1時間で自動失効）
-    const APP_VERSION = "2026.06.25.4";
+    const APP_VERSION = "2026.06.25.5";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -1246,7 +1246,7 @@
       clearInterval(timer);
       timer = setInterval(() => {
         const left = expiresAt - Date.now();
-        if (left <= 0) { endSession("共有時間が終了しました（自動）", true); return; }
+        if (left <= 0) { leaveSession("共有時間（1時間）が終了しました。"); return; }
         const m = Math.floor(left/60000), s = Math.floor((left%60000)/1000);
         $("timeLeft").textContent = `残り ${m}:${String(s).padStart(2,"0")}`;
       }, 1000);
@@ -1262,12 +1262,24 @@
       else if (pts.length === 1) map.setView(pts[0], 16);
     });
     $("btnEnd").addEventListener("click", () => {
-      if (confirm("位置の共有を終了しますか？")) endSession("共有を終了しました", true);
+      if (confirm("位置の共有を終了して退出しますか？\n（他のメンバーの共有は続きます）")) leaveSession("この待ち合わせから退出しました。お疲れさまでした。");
     });
 
     // =========================================================
     // 終了処理
     // =========================================================
+    // 自分だけ退出：参加者・位置から自分を削除する。status は変えないので、残りのメンバーは共有を継続できる。
+    async function leaveSession(msg){
+      const sid = sessionId, u = uid;
+      try {
+        if (sid && u) {
+          await remove(ref(db, `sessions/${sid}/participants/${u}`));
+          await remove(ref(db, `sessions/${sid}/locations/${u}`));
+        }
+      } catch(e){ console.warn(e); }
+      showEnded("共有を終了しました", msg);
+    }
+    // セッション全体を終了：status=ended にして全員を終了させる（ホストの招待キャンセル等）。
     async function endSession(msg, markEnded){
       try {
         if (sessionId && uid) await remove(ref(db, `sessions/${sessionId}/locations/${uid}`));
