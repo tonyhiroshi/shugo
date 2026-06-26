@@ -185,8 +185,9 @@
     /* 集合ピンのメモ（Leafletツールチップ） */
     .leaflet-tooltip.meet-tip {
       background: rgba(23,29,43,.96); color:#fff; border:1px solid var(--warn);
-      border-radius:9px; padding:5px 10px; font-size:12.5px; font-weight:700;
-      box-shadow: var(--shadow); white-space: normal; max-width: 220px; text-align:center;
+      border-radius:9px; padding:5px 9px; font-size:12px; font-weight:700; line-height:1.4;
+      box-shadow: var(--shadow); white-space: normal; max-width: 130px; width: max-content;
+      text-align:center; word-break: break-word;
     }
     .leaflet-tooltip-top.meet-tip::before { border-top-color: rgba(23,29,43,.96); }
 
@@ -553,7 +554,7 @@
     // ▲▲▲ ここまで貼り替え ▲▲▲
 
     const SESSION_TTL_MS = 1 * 60 * 60 * 1000;   // 共有の有効時間（1時間で自動失効）
-    const APP_VERSION = "2026.06.25.6";
+    const APP_VERSION = "2026.06.25.7";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
