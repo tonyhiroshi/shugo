@@ -554,7 +554,7 @@
     // ▲▲▲ ここまで貼り替え ▲▲▲
 
     const SESSION_TTL_MS = 1 * 60 * 60 * 1000;   // 共有の有効時間（1時間で自動失効）
-    const APP_VERSION = "2026.06.25.7";
+    const APP_VERSION = "2026.06.25.8";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -936,12 +936,35 @@
       toast("メモを更新しました");
     });
 
-    // 住所・場所検索（OpenStreetMap Nominatim）
-    async function geocode(q){
+    // 住所・場所検索：国土地理院（日本の住所に強い）→ なければ Nominatim にフォールバック
+    function normalizeQuery(q){
+      return String(q)
+        .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))   // 全角数字→半角
+        .replace(/[－ー‐−–—]/g, "-")                                                // 各種ダッシュ→半角ハイフン
+        .replace(/\s+/g, " ").trim();
+    }
+    async function geocodeGSI(q){
+      // 国土地理院 住所検索（GeoJSON）。"大田区池上6-27-14" のような番地まで対応
+      const url = `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(q)}`;
+      const res = await fetch(url); if (!res.ok) throw new Error("gsi failed");
+      const list = await res.json();
+      return (Array.isArray(list) ? list : []).map(it => ({
+        lat: it.geometry.coordinates[1],
+        lon: it.geometry.coordinates[0],
+        display_name: it.properties && it.properties.title || ""
+      })).filter(x => typeof x.lat === "number" && typeof x.lon === "number");
+    }
+    async function geocodeNominatim(q){
       const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&accept-language=ja&countrycodes=jp&q=${encodeURIComponent(q)}`;
       const res = await fetch(url, { headers: { "Accept": "application/json" } });
-      if (!res.ok) throw new Error("geocode failed");
-      return res.json();
+      if (!res.ok) throw new Error("nominatim failed");
+      const list = await res.json();
+      return list.map(it => ({ lat: parseFloat(it.lat), lon: parseFloat(it.lon), display_name: it.display_name }));
+    }
+    async function geocode(qRaw){
+      const q = normalizeQuery(qRaw);
+      try { const a = await geocodeGSI(q); if (a.length) return a.slice(0, 5); } catch(e){ console.warn("GSI失敗→Nominatimへ", e); }
+      return await geocodeNominatim(q);
     }
     async function doSearch(){
       const q = $("meetSearch").value.trim();

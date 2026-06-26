@@ -62,7 +62,8 @@
   <ul>
     <li><strong>Google Firebase</strong>（匿名認証・Realtime Database）：データの保存・同期に利用します。データはGoogleのサーバー（シンガポール／asia-southeast1）に保存されます。</li>
     <li><strong>OpenStreetMap</strong>：地図の表示（地図タイルの取得）に利用します。</li>
-    <li><strong>OpenStreetMap Nominatim</strong>：集合場所の検索（住所・場所名からの位置取得）に利用します。検索した語句が送信されます。</li>
+    <li><strong>国土地理院 住所検索 API</strong>：集合場所の住所検索に利用します（日本の住所に強いため第一候補）。検索した語句が送信されます。</li>
+    <li><strong>OpenStreetMap Nominatim</strong>：集合場所の場所名検索に利用します（国土地理院で結果が得られない場合のフォールバック）。検索した語句が送信されます。</li>
     <li><strong>GitHub Pages</strong>：本サービスの配信（ホスティング）に利用します。</li>
   </ul>
   <p>これらのサービスには、それぞれの提供事業者のプライバシーポリシーが適用されます。なお、本サービスは<strong>広告およびアクセス解析（トラッキング）を利用していません。</strong></p>
