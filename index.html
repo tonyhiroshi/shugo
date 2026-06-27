@@ -246,6 +246,34 @@
     .badge.sharing { background:rgba(31,111,235,.20); color:#9dc1ff; border:1px solid rgba(31,111,235,.5); }
     .badge.offline { background:rgba(154,166,184,.14); color:#aab4c4; border:1px solid rgba(154,166,184,.4); }
     .badge.left { background:rgba(154,166,184,.10); color:#7b879b; border:1px solid #2b3548; }
+    /* チャット窓 */
+    .btn.has-unread { position:relative; }
+    .btn.has-unread::after { content:""; position:absolute; top:6px; right:8px; width:9px; height:9px;
+      border-radius:50%; background:var(--danger); box-shadow:0 0 0 2px var(--panel); }
+    .chat-panel {
+      position:fixed; left:0; right:0; bottom:0; z-index:3000; height:80dvh; max-height:80dvh;
+      background:var(--panel); border-top:1px solid #2b3548; border-radius:18px 18px 0 0;
+      box-shadow:0 -8px 30px rgba(0,0,0,.5); display:flex; flex-direction:column;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .chat-head { display:flex; align-items:center; justify-content:space-between;
+      padding:13px 16px; border-bottom:1px solid #232c3d; font-weight:700; flex:none; }
+    .chat-head .x { background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; }
+    .chat-log { flex:1; overflow-y:auto; padding:14px 14px 8px; display:flex; flex-direction:column; gap:8px; }
+    .chat-empty { color:var(--muted); font-size:13px; text-align:center; margin:auto; padding:24px; line-height:1.7; }
+    .chat-row { display:flex; }
+    .chat-row.mine { justify-content:flex-end; }
+    .chat-bubble { max-width:80%; background:var(--panel-2); border:1px solid #2b3548; border-radius:14px; padding:8px 12px; }
+    .chat-bubble.mine { background:linear-gradient(135deg,var(--accent),var(--accent-2)); border-color:transparent; }
+    .chat-name { font-size:11.5px; font-weight:700; margin-bottom:2px; }
+    .chat-text { font-size:14px; color:#fff; line-height:1.5; word-break:break-word; white-space:pre-wrap; }
+    .chat-meta { font-size:10.5px; color:rgba(255,255,255,.5); text-align:right; margin-top:3px; }
+    .chat-bubble:not(.mine) .chat-meta { color:var(--muted); }
+    .chat-chips { display:flex; gap:7px; overflow-x:auto; padding:8px 12px; flex:none; border-top:1px solid #232c3d; scrollbar-width:none; }
+    .chat-chips::-webkit-scrollbar { display:none; }
+    .chat-chips .chip { flex:none; padding:8px 12px; font-size:13px; }
+    .chat-input-bar { display:flex; gap:8px; padding:10px 12px 12px; border-top:1px solid #232c3d; flex:none; }
+    .chat-input-bar input { flex:1; }
     /* 方向コンパス */
     .dir-widget {
       position:absolute; right:12px; z-index:1000; display:flex; align-items:center; gap:10px;
@@ -465,17 +493,6 @@
         </div>
       </div>
 
-      <!-- 状況パネル -->
-      <div id="statusPanel" class="sheet" style="display:none;">
-        <div class="sheet-head">状況を送る <button id="statusClose" class="x">✕</button></div>
-        <div class="sheet-body">
-          <div class="chips" id="statusChips"></div>
-          <div class="search-row" style="margin-top:12px;">
-            <input id="statusInput" type="text" maxlength="40" placeholder="自由に入力（例：北口の改札にいます）" autocomplete="off" />
-            <button id="statusSend" class="btn primary" style="width:auto; padding:12px 16px;">送信</button>
-          </div>
-        </div>
-      </div>
 
       <!-- 集合状況ボード（バナーをタップで開く） -->
       <div id="boardPanel" class="sheet" style="display:none;">
@@ -506,7 +523,7 @@
         <div class="row">
           <button id="btnInvite" class="btn ghost" style="flex:1;">👥 招待</button>
           <button id="btnMeet" class="btn ghost" style="flex:1;">📍 集合</button>
-          <button id="btnStatus" class="btn ghost" style="flex:1;">💬 状況</button>
+          <button id="btnStatus" class="btn ghost" style="flex:1;">💬 チャット</button>
           <button id="btnRecenter" class="btn ghost" style="flex:1;">◎ 中央</button>
         </div>
         <button id="btnEnd" class="btn danger">共有を終了</button>
@@ -525,6 +542,20 @@
   </div>
 
   <div id="toast" class="toast"></div>
+
+  <!-- チャット窓（別オーバーレイ：自分・相手のコメントを履歴表示） -->
+  <div id="chatPanel" class="chat-panel" style="display:none;">
+    <div class="chat-head">
+      <div>💬 チャット</div>
+      <button id="chatClose" class="x">✕</button>
+    </div>
+    <div id="chatLog" class="chat-log"></div>
+    <div id="chatChips" class="chat-chips"></div>
+    <div class="chat-input-bar">
+      <input id="chatInput" type="text" maxlength="120" placeholder="メッセージを入力" autocomplete="off" />
+      <button id="chatSend" class="btn primary" style="width:auto; padding:11px 16px;">送信</button>
+    </div>
+  </div>
 
   <!-- ホーム画面に追加（A2HS）モーダル -->
   <div id="a2hs" class="a2hs" style="display:none;">
@@ -576,7 +607,7 @@
     // ▲▲▲ ここまで貼り替え ▲▲▲
 
     const SESSION_TTL_MS = 1 * 60 * 60 * 1000;   // 共有の有効時間（1時間で自動失効）
-    const APP_VERSION = "2026.06.25.9";
+    const APP_VERSION = "2026.06.27.1";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -857,9 +888,10 @@
       $("roster").style.display = "none";
       $("meetPill").style.display = "none";
       $("meetPanel").style.display = "none";
-      $("statusPanel").style.display = "none";
+      $("chatPanel").style.display = "none";
       $("invitePanel").style.display = "none";
       $("boardPanel").style.display = "none";
+      lastChatSeen = Date.now(); $("chatInput").value = ""; $("btnStatus").classList.remove("has-unread");
       listenSession();
       listenLocations();
       listenMeetPoint();
@@ -923,7 +955,7 @@
     }
     // ---- 集合場所パネル（検索 / 地図タップ / 解除） ----
     function openMeetPanel(){
-      $("statusPanel").style.display = "none";
+      $("chatPanel").style.display = "none";
       $("invitePanel").style.display = "none";
       $("boardPanel").style.display = "none";
       $("meetPanel").style.display = "block";
@@ -1013,44 +1045,82 @@
     $("meetSearchBtn").addEventListener("click", doSearch);
     $("meetSearch").addEventListener("keydown", (e)=>{ if (e.key === "Enter") doSearch(); });
 
-    // ---- 状況の共有（プリセット送信 → 相手のバナーに表示） ----
-    function buildStatusChips(){
-      const wrap = $("statusChips"); wrap.innerHTML = "";
+    // ---- チャット（自分・相手のコメントを履歴表示。participants/{uid}/messages に保存＝ルール変更不要） ----
+    let lastChatSeen = 0;
+    function fmtTime(ms){ try { return new Date(ms).toLocaleTimeString("ja-JP", { hour:"2-digit", minute:"2-digit" }); } catch(_){ return ""; } }
+    function latestMessage(m){
+      if (!m || !m.messages) return null;
+      let best = null;
+      Object.values(m.messages).forEach(x => { if (x && typeof x.text === "string" && (!best || (x.at||0) > best.at)) best = { text:x.text, at:x.at||0 }; });
+      return best;
+    }
+    function allMessages(){
+      const msgs = [];
+      Object.entries(members).forEach(([id, m]) => {
+        if (!m || !m.messages) return;
+        Object.values(m.messages).forEach(x => { if (x && typeof x.text === "string") msgs.push({ uid:id, name:m.name||"相手", text:x.text, at:x.at||0 }); });
+      });
+      return msgs.sort((a,b) => a.at - b.at);
+    }
+    function sendMessage(text){
+      text = (text||"").trim();
+      if (!text) { toast("メッセージを入力してください"); return; }
+      if (!sessionId || !uid) return;
+      set(ref(db, `sessions/${sessionId}/participants/${uid}/messages/${randomId()}`), { text, at: Date.now() });
+    }
+    function chatIsOpen(){ return $("chatPanel").style.display === "flex"; }
+    function renderChat(){
+      const el = $("chatLog"); if (!el) return;
+      const stick = (el.scrollHeight - el.scrollTop - el.clientHeight) < 60;   // ほぼ最下部なら新着で追従
+      const msgs = allMessages();
+      el.innerHTML = "";
+      if (!msgs.length) { el.innerHTML = '<div class="chat-empty">まだメッセージはありません。<br>最初のひとことを送ってみましょう。</div>'; return; }
+      msgs.forEach(msg => {
+        const mine = msg.uid === uid;
+        const row = document.createElement("div"); row.className = "chat-row" + (mine ? " mine" : "");
+        const meta = `<div class="chat-meta">${fmtTime(msg.at)}</div>`;
+        row.innerHTML = mine
+          ? `<div class="chat-bubble mine"><div class="chat-text">${escapeHtml(msg.text)}</div>${meta}</div>`
+          : `<div class="chat-bubble"><div class="chat-name" style="color:${colorFor(msg.uid)}">${escapeHtml(msg.name)}</div><div class="chat-text">${escapeHtml(msg.text)}</div>${meta}</div>`;
+        el.appendChild(row);
+      });
+      if (stick) el.scrollTop = el.scrollHeight;
+    }
+    function updateChatUnread(){
+      let hasNew = false;
+      Object.entries(members).forEach(([id, m]) => {
+        if (id === uid || !m || !m.messages) return;
+        Object.values(m.messages).forEach(x => { if (x && (x.at||0) > lastChatSeen) hasNew = true; });
+      });
+      $("btnStatus").classList.toggle("has-unread", hasNew && !chatIsOpen());
+    }
+    function buildChatChips(){
+      const wrap = $("chatChips"); if (!wrap) return; wrap.innerHTML = "";
       STATUS_PRESETS.forEach(txt => {
         const c = document.createElement("button"); c.className = "chip"; c.textContent = txt;
-        c.addEventListener("click", () => sendStatus(txt));
+        c.addEventListener("click", () => sendMessage(txt));
         wrap.appendChild(c);
       });
-      const clr = document.createElement("button"); clr.className = "chip clear"; clr.textContent = "状況をクリア";
-      clr.addEventListener("click", () => sendStatus(""));
-      wrap.appendChild(clr);
     }
-    function sendStatus(text){
-      if (!sessionId || !uid) return;
-      update(ref(db, `sessions/${sessionId}/participants/${uid}`), { note: text || null, noteAt: Date.now() });
-      $("statusPanel").style.display = "none";
-      toast(text ? "状況を送りました" : "状況をクリアしました");
-    }
-    $("btnStatus").addEventListener("click", () => {
-      const open = $("statusPanel").style.display === "block";
+    function openChat(){
       closeMeetPanel(); $("invitePanel").style.display = "none"; $("boardPanel").style.display = "none";
-      if (open) { $("statusPanel").style.display = "none"; }
-      else { buildStatusChips(); $("statusInput").value = ""; $("statusPanel").style.display = "block"; }
-    });
-    $("statusClose").addEventListener("click", () => { $("statusPanel").style.display = "none"; });
-    // 自由入力のコメントを送信
-    $("statusSend").addEventListener("click", () => {
-      const v = $("statusInput").value.trim();
-      if (!v) { toast("コメントを入力してください"); return; }
-      sendStatus(v);
-      $("statusInput").value = "";
-    });
-    $("statusInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("statusSend").click(); });
+      buildChatChips();
+      $("chatPanel").style.display = "flex";
+      lastChatSeen = Date.now();
+      $("btnStatus").classList.remove("has-unread");
+      renderChat();
+      setTimeout(() => { const el = $("chatLog"); if (el) el.scrollTop = el.scrollHeight; }, 40);
+    }
+    function closeChat(){ $("chatPanel").style.display = "none"; lastChatSeen = Date.now(); updateChatUnread(); }
+    $("btnStatus").addEventListener("click", () => { if (chatIsOpen()) closeChat(); else openChat(); });
+    $("chatClose").addEventListener("click", closeChat);
+    $("chatSend").addEventListener("click", () => { const v = $("chatInput").value.trim(); if (!v) return; sendMessage(v); $("chatInput").value = ""; });
+    $("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("chatSend").click(); } });
 
     // ---- 招待パネル（地図からいつでも招待） ----
     $("btnInvite").addEventListener("click", () => {
       const open = $("invitePanel").style.display === "block";
-      closeMeetPanel(); $("statusPanel").style.display = "none"; $("boardPanel").style.display = "none";
+      closeMeetPanel(); $("chatPanel").style.display = "none"; $("boardPanel").style.display = "none";
       if (open) { $("invitePanel").style.display = "none"; }
       else { $("inviteUrl2").textContent = inviteUrlStr(); renderQR($("qrInvite"), inviteUrlStr()); $("invitePanel").style.display = "block"; }
     });
@@ -1151,6 +1221,8 @@
       updateDirection();
       updateMeetInfo(locs);
       if ($("boardPanel").style.display === "block") renderBoard();   // ボード表示中は同時更新
+      if (chatIsOpen()) renderChat();                                 // チャット表示中は新着を反映
+      updateChatUnread();                                             // 💬ボタンの未読バッジ
 
       if (!fitted && pts.length) {
         const all = pts.slice();
@@ -1207,9 +1279,10 @@
     function renderNotes(){
       const el = $("notes"); el.innerHTML = "";
       Object.entries(members).forEach(([id, m]) => {
-        if (id === uid || !m || !m.note) return;
+        if (id === uid || !m || m.left) return;
+        const lm = latestMessage(m); if (!lm) return;
         const b = document.createElement("div"); b.className = "note-bubble";
-        b.innerHTML = `💬 <b>${escapeHtml(m.name||"相手")}</b>：${escapeHtml(m.note)}`;
+        b.innerHTML = `💬 <b>${escapeHtml(m.name||"相手")}</b>：${escapeHtml(lm.text)}`;
         el.appendChild(b);
       });
     }
@@ -1248,7 +1321,7 @@
         let sub = "";
         if (!isMe && !m.left && me && latestLocs[id] && typeof latestLocs[id].lat === "number")
           sub = `自分から ${fmtDist(haversine([me.lat,me.lng],[latestLocs[id].lat,latestLocs[id].lng]))}`;
-        if (m.note) sub = (sub ? sub + " ・ " : "") + `💬 ${escapeHtml(m.note)}`;
+        const lm = latestMessage(m); if (lm) sub = (sub ? sub + " ・ " : "") + `💬 ${escapeHtml(lm.text)}`;
         const row = document.createElement("div"); row.className = "board-row";
         row.innerHTML =
           `<span class="cdot" style="background:${m.left ? '#3a465c' : colorFor(id)}"></span>` +
@@ -1259,7 +1332,7 @@
     }
     function openBoard(){
       closeMeetPanel();
-      $("statusPanel").style.display = "none";
+      $("chatPanel").style.display = "none";
       $("invitePanel").style.display = "none";
       renderBoard();
       $("boardPanel").style.display = "block";
@@ -1440,9 +1513,10 @@
       $("meetPill").style.display = "none";
       $("dirWidget").style.display = "none";
       $("meetPanel").style.display = "none";
-      $("statusPanel").style.display = "none";
+      $("chatPanel").style.display = "none";
       $("invitePanel").style.display = "none";
       $("boardPanel").style.display = "none";
+      $("btnStatus").classList.remove("has-unread");
       $("shareBanner").classList.remove("paused","merged");
     }
     function clearListeners(){ unsub.forEach(u => { try { u(); } catch(_){} }); unsub = []; }
