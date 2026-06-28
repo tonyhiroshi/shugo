@@ -274,6 +274,26 @@
     .chat-chips .chip { flex:none; padding:8px 12px; font-size:13px; }
     .chat-input-bar { display:flex; gap:8px; padding:10px 12px 12px; border-top:1px solid #232c3d; flex:none; }
     .chat-input-bar input { flex:1; }
+    /* 共有時間の選択（ホーム）/ 延長パネル */
+    .dur-pick { margin-bottom: 12px; }
+    .dur-pick-label { font-size:13px; font-weight:600; color:var(--muted); margin-bottom:8px; text-align:center; }
+    .dur-options { display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; }
+    .dur-options .dur-opt {
+      padding:12px 4px; border-radius:12px; border:1px solid #2b3548; background:#0f1420;
+      color:#fff; font-size:15px; font-weight:600; cursor:pointer; text-align:center;
+      transition: border-color .15s, background .15s;
+    }
+    .dur-options .dur-opt:hover { border-color:#3a4a66; }
+    .dur-options .dur-opt.sel { border-color: var(--accent-2); background: rgba(90,160,255,.16); color: var(--accent-2); }
+    /* 残り時間チップ（タップで延長：ホスト） */
+    .time-left {
+      font-variant-numeric: tabular-nums; font-size:13px; color:var(--muted);
+      background:transparent; border:none; padding:2px 0; cursor:default; font-family:inherit;
+    }
+    .time-left.extendable {
+      cursor:pointer; color:var(--accent-2); border:1px solid #2b3548; border-radius:10px;
+      padding:4px 10px; background: rgba(90,160,255,.10);
+    }
     /* 方向コンパス */
     .dir-widget {
       position:absolute; right:12px; z-index:1000; display:flex; align-items:center; gap:10px;
@@ -358,6 +378,10 @@
         <p class="sub">待ち合わせを作って、LINEで相手を招待しましょう。</p>
 
         <div class="stack">
+          <div class="dur-pick">
+            <div class="dur-pick-label">共有する時間を選ぶ</div>
+            <div id="durOptions" class="dur-options" role="group" aria-label="共有時間"></div>
+          </div>
           <button id="btnCreate" class="btn primary">＋ 待ち合わせを作成</button>
           <div class="hint" style="text-align:center; padding: 4px 0;">相手から招待リンクを受け取った場合は、そのリンクを開いてください。</div>
         </div>
@@ -375,7 +399,7 @@
           <b>安心のしくみ</b><br>
           ・お互いが承認したときだけ位置を共有します<br>
           ・共有はいつでもワンタップで終了できます<br>
-          ・約1時間で自動的に共有が終了します<br>
+          ・選んだ時間で自動的に共有が終了します（あとから延長も可能）<br>
           ・位置の履歴は保存しません（今いる場所だけ）
         </div>
         <div id="linkTip" class="notice" style="display:none; margin-top:12px;">
@@ -459,7 +483,7 @@
             <div class="t1" id="bannerTitle">グループ共有中</div>
             <div class="t2" id="bannerSub">位置を取得しています…</div>
           </div>
-          <div style="font-variant-numeric: tabular-nums; font-size:13px; color:var(--muted);" id="timeLeft">—</div>
+          <button type="button" id="timeLeft" class="time-left">—</button>
           <div class="banner-chev">›</div>
         </div>
         <div id="notes" class="notes"></div>
@@ -499,6 +523,16 @@
         <div class="sheet-head">集合状況 <button id="boardClose" class="x">✕</button></div>
         <div class="sheet-body">
           <div id="boardList" class="board-list"></div>
+        </div>
+      </div>
+
+      <!-- 延長パネル（ホストのみ：共有時間を延長） -->
+      <div id="extendPanel" class="sheet" style="display:none;">
+        <div class="sheet-head">共有時間を延長 <button id="extendClose" class="x">✕</button></div>
+        <div class="sheet-body">
+          <div class="hint" id="extendHint">現在の残り時間に追加します。</div>
+          <div id="extendOptions" class="dur-options" style="margin-top:12px;"></div>
+          <div class="hint" style="margin-top:10px;">※ 延長できるのはホストだけです（最大12時間まで）。</div>
         </div>
       </div>
 
@@ -606,8 +640,12 @@
     };
     // ▲▲▲ ここまで貼り替え ▲▲▲
 
-    const SESSION_TTL_MS = 1 * 60 * 60 * 1000;   // 共有の有効時間（1時間で自動失効）
-    const APP_VERSION = "2026.06.27.1";
+    const HOUR_MS = 60 * 60 * 1000;
+    const DURATION_OPTIONS = [1, 2, 3, 6];        // ホストが選べる共有時間（時間）
+    const SESSION_TTL_MS = 1 * HOUR_MS;           // 既定の共有時間（1時間）
+    let selectedDurationMs = SESSION_TTL_MS;       // ホストが作成時に選んだ共有時間
+    const MAX_SESSION_MS = 12 * HOUR_MS;           // 延長してもこの上限まで
+    const APP_VERSION = "2026.06.28.1";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -653,6 +691,10 @@
     const OTHER_COLORS = ["#8b5cf6","#2fbf71","#f5a623","#e5484d"]; // 相手の色（自分は青）
     const WALK_MPM = 80;            // 徒歩の目安速度（約80m/分 ≈ 4.8km/h）
     const STATUS_PRESETS = ["向かっています","もうすぐ着きます","5分で着きます","10分で着きます","遅れています","到着しました"];
+    const ARRIVE_RADIUS_M = 60;     // 集合場所のこの距離以内で「到着」とみなす
+    const ARRIVE_EXIT_M = 120;      // いったん離れた判定（再到着で再通知できるよう）
+    let arrivedState = {};          // uid -> 到着済みか（到着通知の重複防止）
+    let arrivalSeeded = false;      // 初回は通知せず現状を取り込むだけ
 
     // =========================================================
     // Firebase 初期化 & 匿名サインイン
@@ -757,11 +799,29 @@
     // =========================================================
     // 待ち合わせ作成（ホスト）
     // =========================================================
+    // 共有時間の選択（ホーム画面）
+    function renderDurationOptions(){
+      const box = $("durOptions");
+      box.innerHTML = "";
+      DURATION_OPTIONS.forEach(h => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "dur-opt" + (h * HOUR_MS === selectedDurationMs ? " sel" : "");
+        b.textContent = `${h}時間`;
+        b.addEventListener("click", () => {
+          selectedDurationMs = h * HOUR_MS;
+          renderDurationOptions();
+        });
+        box.appendChild(b);
+      });
+    }
+    renderDurationOptions();
+
     $("btnCreate").addEventListener("click", createSession);
     async function createSession(){
       sessionId = randomId();
       role = "host";
-      expiresAt = Date.now() + SESSION_TTL_MS;
+      expiresAt = Date.now() + selectedDurationMs;
       // ルール上、親パス(sessions/$sid)への直接 set は不可。meta → participants を個別に書く。
       await set(ref(db, `sessions/${sessionId}/meta`),
         { status: "pending", createdAt: serverTimestamp(), expiresAt, hostUid: uid, hostName: myName, maxMembers: MAX_MEMBERS });
@@ -881,7 +941,7 @@
       try { localStorage.removeItem("mm_pending_invite"); } catch(_){}   // 参加したので「未承認の招待」は解除
       if (!map) initMap();
       else setTimeout(()=>map.invalidateSize(), 80);
-      fitted = false; mergeStates = {};
+      fitted = false; mergeStates = {}; arrivedState = {}; arrivalSeeded = false;
       lastMe = null; focusUid = null; members = {}; latestLocs = {};
       $("dirWidget").style.display = "none";
       $("notes").innerHTML = "";
@@ -891,6 +951,7 @@
       $("chatPanel").style.display = "none";
       $("invitePanel").style.display = "none";
       $("boardPanel").style.display = "none";
+      $("extendPanel").style.display = "none";
       lastChatSeen = Date.now(); $("chatInput").value = ""; $("btnStatus").classList.remove("has-unread");
       listenSession();
       listenLocations();
@@ -933,7 +994,12 @@
     function listenMeetPoint(){
       unsub.push(onValue(ref(db, `sessions/${sessionId}/meetPoint`), (snap) => {
         const v = snap.val();
+        const prev = meetPoint;
         meetPoint = (v && typeof v.lat === "number") ? v : null;
+        // 集合場所が変わった/設定された/解除されたら到着判定をやり直す
+        if (!meetPoint || !prev || prev.lat !== meetPoint.lat || prev.lng !== meetPoint.lng) {
+          arrivedState = {}; arrivalSeeded = false;
+        }
         renderMeetMarker();
         if ($("screen-map").classList.contains("active")) renderAll();
       }));
@@ -958,6 +1024,7 @@
       $("chatPanel").style.display = "none";
       $("invitePanel").style.display = "none";
       $("boardPanel").style.display = "none";
+      $("extendPanel").style.display = "none";
       $("meetPanel").style.display = "block";
       $("meetLabel").value = (meetPoint && meetPoint.label) || "";
       $("meetClear").style.display = meetPoint ? "block" : "none";
@@ -1103,7 +1170,7 @@
       });
     }
     function openChat(){
-      closeMeetPanel(); $("invitePanel").style.display = "none"; $("boardPanel").style.display = "none";
+      closeMeetPanel(); $("invitePanel").style.display = "none"; $("boardPanel").style.display = "none"; $("extendPanel").style.display = "none";
       buildChatChips();
       $("chatPanel").style.display = "flex";
       lastChatSeen = Date.now();
@@ -1120,11 +1187,50 @@
     // ---- 招待パネル（地図からいつでも招待） ----
     $("btnInvite").addEventListener("click", () => {
       const open = $("invitePanel").style.display === "block";
-      closeMeetPanel(); $("chatPanel").style.display = "none"; $("boardPanel").style.display = "none";
+      closeMeetPanel(); $("chatPanel").style.display = "none"; $("boardPanel").style.display = "none"; $("extendPanel").style.display = "none";
       if (open) { $("invitePanel").style.display = "none"; }
       else { $("inviteUrl2").textContent = inviteUrlStr(); renderQR($("qrInvite"), inviteUrlStr()); $("invitePanel").style.display = "block"; }
     });
     $("inviteClose").addEventListener("click", () => { $("invitePanel").style.display = "none"; });
+
+    // ---- 共有時間の延長（ホストのみ） ----
+    function renderExtendOptions(){
+      const box = $("extendOptions");
+      box.innerHTML = "";
+      DURATION_OPTIONS.forEach(h => {
+        const remain = Math.max(0, expiresAt - Date.now());
+        const wouldBe = remain + h * HOUR_MS;
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "dur-opt";
+        b.textContent = `＋${h}時間`;
+        if (wouldBe > MAX_SESSION_MS) { b.disabled = true; b.style.opacity = ".4"; b.style.cursor = "not-allowed"; }
+        else b.addEventListener("click", () => extendSession(h * HOUR_MS));
+        box.appendChild(b);
+      });
+    }
+    function openExtendPanel(){
+      if (role !== "host") { toast("延長できるのはホストだけです"); return; }
+      closeMeetPanel(); $("chatPanel").style.display = "none"; $("boardPanel").style.display = "none"; $("invitePanel").style.display = "none";
+      renderExtendOptions();
+      $("extendPanel").style.display = "block";
+    }
+    async function extendSession(addMs){
+      if (role !== "host") return;
+      const base = Math.max(expiresAt, Date.now());   // 期限切れ寸前でも現在時刻を基準に
+      let next = base + addMs;
+      const cap = Date.now() + MAX_SESSION_MS;
+      if (next > cap) next = cap;
+      try {
+        await update(ref(db, `sessions/${sessionId}/meta`), { expiresAt: next });
+        expiresAt = next;                              // ローカルも即時反映（onValue でも更新される）
+        $("extendPanel").style.display = "none";
+        tickTimer();
+        toast(`共有時間を ${Math.round(addMs/HOUR_MS)} 時間延長しました`);
+      } catch(e){ console.warn(e); toast("延長できませんでした"); }
+    }
+    $("extendClose").addEventListener("click", () => { $("extendPanel").style.display = "none"; });
+    $("timeLeft").addEventListener("click", (e) => { e.stopPropagation(); if (role === "host") openExtendPanel(); });
 
     // ---- 相手の方向コンパス ----
     function bearing(from, to){
@@ -1138,6 +1244,8 @@
       return ["北","北東","東","南東","南","南西","西","北西"][Math.round(deg/45) % 8];
     }
     function updateDirection(){
+      $("dirWidget").style.display = "none";   // コンパス表示は無効化
+      return;
       const me = latestLocs[uid];
       const tgt = focusUid ? latestLocs[focusUid] : null;
       if (!(me && tgt && typeof tgt.lat === "number")) { $("dirWidget").style.display = "none"; return; }
@@ -1220,6 +1328,7 @@
       updateNearestAndMerge(locs);
       updateDirection();
       updateMeetInfo(locs);
+      checkArrivals(locs);
       if ($("boardPanel").style.display === "block") renderBoard();   // ボード表示中は同時更新
       if (chatIsOpen()) renderChat();                                 // チャット表示中は新着を反映
       updateChatUnread();                                             // 💬ボタンの未読バッジ
@@ -1334,6 +1443,7 @@
       closeMeetPanel();
       $("chatPanel").style.display = "none";
       $("invitePanel").style.display = "none";
+      $("extendPanel").style.display = "none";
       renderBoard();
       $("boardPanel").style.display = "block";
     }
@@ -1381,6 +1491,27 @@
         $("meetEta").textContent = md > 40 ? `（徒歩約${eta}分）` : "（まもなく）";
         $("meetPill").style.display = "block";
       } else { $("meetPill").style.display = "none"; }
+    }
+
+    // 集合場所への到着を検知して全員へ通知（各端末が共有座標からローカル判定＝DB書き込み不要）
+    function checkArrivals(locs){
+      if (!meetPoint) { arrivedState = {}; arrivalSeeded = false; return; }
+      Object.keys(members).forEach(id => {
+        const l = locs[id];
+        if (!l || typeof l.lat !== "number") return;
+        const d = haversine([l.lat, l.lng], [meetPoint.lat, meetPoint.lng]);
+        const was = !!arrivedState[id];
+        if (!was && d <= ARRIVE_RADIUS_M) {
+          arrivedState[id] = true;
+          if (arrivalSeeded) {                       // 初回シード時は通知しない
+            const name = (id === uid) ? "あなた" : (members[id]?.name || "相手");
+            notify(`🎉 ${name}が集合場所に到着しました`, [80, 60, 80]);
+          }
+        } else if (was && d > ARRIVE_EXIT_M) {
+          arrivedState[id] = false;                  // 離れたらリセット（再到着でまた通知）
+        }
+      });
+      arrivalSeeded = true;
     }
 
     function notify(msg, pattern){
@@ -1438,14 +1569,21 @@
     // =========================================================
     // タイマー（残り時間 / 自動失効）
     // =========================================================
+    function tickTimer(){
+      const left = expiresAt - Date.now();
+      if (left <= 0) { leaveSession("共有時間が終了しました。"); return; }
+      const tot = Math.floor(left/1000);
+      const h = Math.floor(tot/3600), m = Math.floor((tot%3600)/60), s = tot%60;
+      const hm = h > 0 ? `${h}:${String(m).padStart(2,"0")}` : `${m}`;
+      const el = $("timeLeft");
+      // ホストは残り時間チップをタップで延長できる
+      el.textContent = `残り ${hm}:${String(s).padStart(2,"0")}` + (role === "host" ? "  ＋延長" : "");
+      el.classList.toggle("extendable", role === "host");
+    }
     function startTimer(){
       clearInterval(timer);
-      timer = setInterval(() => {
-        const left = expiresAt - Date.now();
-        if (left <= 0) { leaveSession("共有時間（1時間）が終了しました。"); return; }
-        const m = Math.floor(left/60000), s = Math.floor((left%60000)/1000);
-        $("timeLeft").textContent = `残り ${m}:${String(s).padStart(2,"0")}`;
-      }, 1000);
+      tickTimer();
+      timer = setInterval(tickTimer, 1000);
     }
 
     // =========================================================
@@ -1505,7 +1643,7 @@
         if (meetMarker){ map.removeLayer(meetMarker); meetMarker=null; }
       }
       disableCompass();
-      meetPoint = null; settingMeet = false; mergeStates = {};
+      meetPoint = null; settingMeet = false; mergeStates = {}; arrivedState = {}; arrivalSeeded = false;
       lastMe = null; focusUid = null; members = {}; latestLocs = {};
       $("btnMeet").classList.remove("active");
       $("roster").style.display = "none"; $("roster").innerHTML = "";
@@ -1516,6 +1654,7 @@
       $("chatPanel").style.display = "none";
       $("invitePanel").style.display = "none";
       $("boardPanel").style.display = "none";
+      $("extendPanel").style.display = "none";
       $("btnStatus").classList.remove("has-unread");
       $("shareBanner").classList.remove("paused","merged");
     }
