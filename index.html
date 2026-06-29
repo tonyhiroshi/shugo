@@ -155,6 +155,11 @@
     }
     .pill b { color: var(--accent-2); }
     .pill .sep { color: #3a465c; margin: 0 4px; }
+    .pill-x {
+      margin-left: 8px; border: none; background: transparent; color: #8b97ad;
+      font-size: 13px; line-height: 1; padding: 2px 2px; cursor: pointer; border-radius: 999px;
+    }
+    .pill-x:hover { color: var(--text); }
     .banner.merged { border-color: var(--ok); }
     .banner.merged .dot { background: var(--ok); }
 
@@ -200,6 +205,15 @@
     /* 位置が古い（離席・バックグラウンド）アイコン＝灰色がかって「ライブでない」と分かる */
     .leaflet-marker-icon.stale { filter: grayscale(.7); }
     /* ナビ小窓（目的地への経路プレビュー） */
+    /* 回転リセット用コンパス（leaflet-rotate）：バナーと被らない位置へ＋ダークテーマに合わせる */
+    .leaflet-control-rotate { margin-top: calc(100px + env(safe-area-inset-top)) !important; margin-left: 12px !important; }
+    .leaflet-control-rotate .leaflet-bar { border: none; }
+    .leaflet-control-rotate .leaflet-control-rotate-toggle {
+      width:46px; height:46px; border-radius:50%; border:1px solid #2b3548;
+      background: rgba(23,29,43,.92); backdrop-filter: blur(8px); color:#fff;
+      box-shadow: var(--shadow); display:flex; align-items:center; justify-content:center;
+    }
+
     .nav-toggle {
       position:absolute; z-index:1001; right:12px; top: calc(112px + env(safe-area-inset-top));
       width:46px; height:46px; border-radius:50%; border:1px solid #2b3548;
@@ -570,7 +584,7 @@
       </div>
 
       <div id="roster" class="roster" style="display:none;"></div>
-      <div id="meetPill" class="pill" style="display:none;">集合まで <b id="meetVal">—</b><span id="meetEta"></span></div>
+      <div id="meetPill" class="pill" style="display:none;">集合まで <b id="meetVal">—</b><span id="meetEta"></span><button type="button" id="meetPillClose" class="pill-x" title="閉じる" aria-label="閉じる">✕</button></div>
 
       <!-- 集合場所パネル -->
       <div id="meetPanel" class="sheet" style="display:none;">
@@ -685,6 +699,8 @@
 
   <!-- Leaflet JS (CDN) -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- 地図の回転（2本指タッチ回転）対応プラグイン -->
+  <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
   <!-- QRコード生成 (CDN, クライアント内で生成＝URLを外部送信しない) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
@@ -716,7 +732,7 @@
     const SESSION_TTL_MS = 1 * HOUR_MS;           // 既定の共有時間（1時間）
     let selectedDurationMs = SESSION_TTL_MS;       // ホストが作成時に選んだ共有時間
     const MAX_SESSION_MS = 12 * HOUR_MS;           // 延長してもこの上限まで
-    const APP_VERSION = "2026.06.29.3";
+    const APP_VERSION = "2026.06.29.4";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -755,7 +771,7 @@
     const GOOGLE_MAPS_API_KEY = "AIzaSyD6aunCLB70iqgMmKmOB1_wJDtoadzJELQ";
     let navOpen = false;           // ナビ小窓を開いているか
     let expiresAt = 0, timer = null;
-    let meetPoint = null, meetMarker = null, settingMeet = false;
+    let meetPoint = null, meetMarker = null, settingMeet = false, meetPillDismissed = false;
     let mergeStates = {};          // uid -> 0:離れている 1:接近中 2:合流済み
     const NEAR_M = 50, MERGE_M = 20;  // 接近/合流の距離しきい値(m)
     const ARRIVE_M = 30;              // 集合場所への「集合済み」判定の距離(m)
@@ -1039,8 +1055,14 @@
     }
 
     function initMap(){
-      map = L.map("map", { zoomControl: false, attributionControl: false })
-            .setView([35.681236, 139.767125], 15); // 仮：東京駅
+      map = L.map("map", {
+        zoomControl: false, attributionControl: false,
+        rotate: true,                 // 回転を有効化（leaflet-rotate）
+        touchRotate: true,            // 2本指タッチで回転
+        shiftKeyRotate: true,         // PCは Shift+ドラッグで回転（動作確認用）
+        bearing: 0,
+        rotateControl: { closeOnZeroBearing: true }   // 左上にコンパス。タップで北に戻す
+      }).setView([35.681236, 139.767125], 15); // 仮：東京駅
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
       L.control.attribution({ prefix: false }).addAttribution("© OpenStreetMap").addTo(map);
       map.on("click", (e) => {
@@ -1077,6 +1099,7 @@
         // 集合場所が変わった/設定された/解除されたら到着判定をやり直す
         if (!meetPoint || !prev || prev.lat !== meetPoint.lat || prev.lng !== meetPoint.lng) {
           arrivedState = {}; arrivalSeeded = false;
+          meetPillDismissed = false;   // 集合場所が変わったら距離ピルを再表示
         }
         renderMeetMarker();
         if ($("screen-map").classList.contains("active")) renderAll();
@@ -1115,6 +1138,29 @@
     function navGmapsUrl(){
       // origin を付けない＝Googleマップ側が端末のライブ現在地を使う（本格ナビ向き）
       return meetPoint ? `https://www.google.com/maps/dir/?api=1&destination=${meetPoint.lat},${meetPoint.lng}&travelmode=walking` : null;
+    }
+    // 外部マップでナビ開始。iOSは「Googleマップアプリ→無ければApple Maps」をネイティブ起動し、
+    // OSの戻る（左上の『‹ 集GO』）でワンタップ復帰できるようにする（in-app ブラウザの戻る迷子を回避）。
+    function openExternalNav(){
+      if (!meetPoint) { toast("集合場所が未設定です"); return; }
+      const dest = `${meetPoint.lat},${meetPoint.lng}`;
+      if (isIOS()){
+        const gmaps = `comgooglemaps://?daddr=${dest}&directionsmode=walking`;
+        const apple = `https://maps.apple.com/?daddr=${dest}&dirflg=w`;
+        let switched = false;
+        const onLeave = () => { switched = true; };
+        document.addEventListener("visibilitychange", onLeave, { once:true });
+        window.addEventListener("pagehide", onLeave, { once:true });
+        // Googleマップアプリが開けばページは背面に回る→onLeaveで中止。開かなければApple Mapsへ。
+        setTimeout(() => {
+          document.removeEventListener("visibilitychange", onLeave);
+          window.removeEventListener("pagehide", onLeave);
+          if (!switched) window.location.href = apple;
+        }, 1300);
+        window.location.href = gmaps;
+      } else {
+        window.open(navGmapsUrl(), "_blank", "noopener");
+      }
     }
     function refreshNav(){
       if (!navOpen) return;
@@ -1163,8 +1209,9 @@
     // ---- 目的地ナビ小窓 ----
     $("btnNav").addEventListener("click", openNav);
     $("navClose").addEventListener("click", closeNav);
+    $("meetPillClose").addEventListener("click", () => { meetPillDismissed = true; $("meetPill").style.display = "none"; });
     $("navRefresh").addEventListener("click", () => { const f = $("navBody").querySelector("iframe"); if (f) f.dataset.src = ""; refreshNav(); });
-    $("navOpenGmaps").addEventListener("click", () => { const u = navGmapsUrl(); if (u) window.open(u, "_blank", "noopener"); else toast("集合場所が未設定です"); });
+    $("navOpenGmaps").addEventListener("click", openExternalNav);
     $("meetClear").addEventListener("click", () => {
       set(ref(db, `sessions/${sessionId}/meetPoint`), null);
       closeMeetPanel();
@@ -1662,7 +1709,7 @@
 
     function updateMeetInfo(locs){
       const me = locs[uid];
-      if (meetPoint && me) {
+      if (meetPoint && me && !meetPillDismissed) {
         const md = haversine([me.lat,me.lng],[meetPoint.lat,meetPoint.lng]);
         $("meetVal").textContent = fmtDist(md);
         const eta = Math.max(1, Math.round(md / WALK_MPM));
@@ -1822,7 +1869,7 @@
         if (meetMarker){ map.removeLayer(meetMarker); meetMarker=null; }
       }
       disableCompass();
-      meetPoint = null; settingMeet = false; mergeStates = {}; arrivedState = {}; arrivalSeeded = false;
+      meetPoint = null; settingMeet = false; meetPillDismissed = false; mergeStates = {}; arrivedState = {}; arrivalSeeded = false;
       lastMe = null; focusUid = null; members = {}; latestLocs = {};
       $("btnMeet").classList.remove("active");
       $("roster").style.display = "none"; $("roster").innerHTML = "";
