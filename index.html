@@ -359,6 +359,41 @@
     .qr-box { background:#fff; padding:12px; border-radius:14px; line-height:0; box-shadow: var(--shadow); }
     .qr-box img, .qr-box canvas { display:block; width:176px; height:176px; }
     .qr-cap { font-size:12px; color:var(--muted); text-align:center; }
+
+    /* ===== 横向き（スマホ・低い画面）でも見やすく ===== */
+    @media (orientation: landscape) and (max-height: 500px) {
+      /* セットアップ系の縦長画面：中央寄せをやめスクロール可能に＝ボタンが切れない */
+      .screen.active:not(#screen-map) { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      .pad { padding: 14px 20px 20px; }
+      .pad.center { justify-content: flex-start; }
+      .brand { margin-bottom: 10px; }
+      h1 { font-size: 19px; }
+      .sub { margin-bottom: 12px; }
+      .qr-box img, .qr-box canvas { width: 120px; height: 120px; }
+      .qr-wrap { margin-top: 10px; }
+      .a2hs-card { max-height: 88vh; overflow-y: auto; }
+
+      /* 地図画面：上下の帯をコンパクトにして地図面積を確保 */
+      .banner { padding: 7px 12px; }
+      .map-bottom { gap: 6px; bottom: max(8px, env(safe-area-inset-bottom)); }
+      .map-bottom .row .btn { padding: 9px 4px; font-size: 12.5px; }
+      .map-bottom .btn.danger { padding: 10px 14px; font-size: 14px; }
+
+      /* roster / pill を下ボタンに被らない高さへ */
+      .roster { bottom: calc(94px + env(safe-area-inset-bottom)); }
+      .pill { bottom: calc(90px + env(safe-area-inset-bottom)); }
+
+      /* ナビ小窓：低い画面でもはみ出さないよう縮小・上に寄せる */
+      .nav-toggle, .nav-mini { top: calc(60px + env(safe-area-inset-top)); }
+      .nav-mini { width: min(48vw, 240px); }
+      .nav-mini-body { height: 100px; }
+
+      /* ボトムシート：高さ上限＋本文スクロールで画面外にはみ出さない */
+      .sheet { bottom: calc(70px + env(safe-area-inset-bottom)); max-height: 72vh; display: flex; flex-direction: column; }
+      .sheet-body { overflow-y: auto; }
+      .results { max-height: 26vh; }
+      .board-list { max-height: 40vh; }
+    }
   </style>
 </head>
 <body>
@@ -681,7 +716,7 @@
     const SESSION_TTL_MS = 1 * HOUR_MS;           // 既定の共有時間（1時間）
     let selectedDurationMs = SESSION_TTL_MS;       // ホストが作成時に選んだ共有時間
     const MAX_SESSION_MS = 12 * HOUR_MS;           // 延長してもこの上限まで
-    const APP_VERSION = "2026.06.29.1";
+    const APP_VERSION = "2026.06.29.2";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
