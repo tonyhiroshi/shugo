@@ -732,7 +732,7 @@
     const SESSION_TTL_MS = 1 * HOUR_MS;           // 既定の共有時間（1時間）
     let selectedDurationMs = SESSION_TTL_MS;       // ホストが作成時に選んだ共有時間
     const MAX_SESSION_MS = 12 * HOUR_MS;           // 延長してもこの上限まで
-    const APP_VERSION = "2026.06.29.4";
+    const APP_VERSION = "2026.06.29.5";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -1113,8 +1113,11 @@
       if (meetPoint) {
         const ll = [meetPoint.lat, meetPoint.lng];
         const icon = L.divIcon({ html: `<div class="pin meet"><span>📍</span></div>`, className: "", iconSize: [30,30], iconAnchor: [15,15] });
-        if (!meetMarker) meetMarker = L.marker(ll, { icon }).addTo(map);
-        else meetMarker.setLatLng(ll);
+        if (!meetMarker) {
+          meetMarker = L.marker(ll, { icon }).addTo(map);
+          // 集合ピンをタップ＝そのまま集合場所までのナビ（経路プレビュー＋マップアプリ起動）を開く
+          meetMarker.on("click", () => { openNav(); });
+        } else meetMarker.setLatLng(ll);
         // メモを集合ピンの上にツールチップ表示（全員共有）
         if (meetPoint.label) meetMarker.bindTooltip(escapeHtml(meetPoint.label), { permanent: true, direction: "top", offset: [0,-14], className: "meet-tip" });
         else meetMarker.unbindTooltip();
