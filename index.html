@@ -197,6 +197,8 @@
     .pin.them { background: #8b5cf6; }
     .pin.meet { background: var(--warn); border-radius: 50%; transform: none; }
     .pin.meet span { transform: none; }
+    /* 位置が古い（離席・バックグラウンド）アイコン＝灰色がかって「ライブでない」と分かる */
+    .leaflet-marker-icon.stale { filter: grayscale(.7); }
     /* 集合ピンのメモ（Leafletツールチップ） */
     .leaflet-tooltip.meet-tip {
       background: rgba(23,29,43,.96); color:#fff; border:1px solid var(--warn);
@@ -645,7 +647,7 @@
     const SESSION_TTL_MS = 1 * HOUR_MS;           // 既定の共有時間（1時間）
     let selectedDurationMs = SESSION_TTL_MS;       // ホストが作成時に選んだ共有時間
     const MAX_SESSION_MS = 12 * HOUR_MS;           // 延長してもこの上限まで
-    const APP_VERSION = "2026.06.28.1";
+    const APP_VERSION = "2026.06.28.2";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -676,6 +678,9 @@
     let watchId = null;
     let unsub = [];             // RTDB リスナー解除
     let map, markers = {}, circles = {}, lines = {}, fitted = false;
+    let anim = {};                 // uid -> requestAnimationFrame id（アイコンのなめらか移動）
+    const MOVE_MS = 600;           // アイコンが新しい位置へ滑って移動する時間
+    const STALE_MS = 90 * 1000;    // この時間更新が無い位置は「古い」＝薄く表示（離席中に見える）
     let expiresAt = 0, timer = null;
     let meetPoint = null, meetMarker = null, settingMeet = false;
     let mergeStates = {};          // uid -> 0:離れている 1:接近中 2:合流済み
@@ -1309,20 +1314,21 @@
         const latlng = [l.lat, l.lng];
         pts.push(latlng);
         if (!markers[id]) markers[id] = L.marker(latlng, { icon: makePin(name, color, isMe) }).addTo(map);
-        else markers[id].setLatLng(latlng).setIcon(makePin(name, color, isMe));
+        else { markers[id].setIcon(makePin(name, color, isMe)); animateMove(id, latlng); }  // 瞬間移動でなく滑って移動
         const acc = (typeof l.accuracy === "number" && l.accuracy > 0) ? Math.min(l.accuracy, 200) : 0;
         if (acc) {
           if (!circles[id]) circles[id] = L.circle(latlng, { radius: acc, color, weight: 1, fillColor: color, fillOpacity: .08 }).addTo(map);
-          else circles[id].setLatLng(latlng).setRadius(acc);
+          else circles[id].setRadius(acc);  // 位置は animateMove が追従させる
         } else if (circles[id]) { map.removeLayer(circles[id]); delete circles[id]; }
       });
       // 退出/位置消失したメンバーの描画を除去
-      Object.keys(markers).forEach(id => { if (!ids.includes(id)) { map.removeLayer(markers[id]); delete markers[id]; if (circles[id]) { map.removeLayer(circles[id]); delete circles[id]; } } });
+      Object.keys(markers).forEach(id => { if (!ids.includes(id)) { map.removeLayer(markers[id]); delete markers[id]; if (anim[id]) { cancelAnimationFrame(anim[id]); delete anim[id]; } if (circles[id]) { map.removeLayer(circles[id]); delete circles[id]; } } });
 
       renderLines(locs);
       renderRoster(locs);
       renderNotes();
       updateBannerTitle();
+      refreshStaleness();   // 古い位置のアイコンを薄く（setIcon でリセットされた不透明度も再適用）
 
       lastMe = locs[uid] ? [locs[uid].lat, locs[uid].lng] : null;
       updateNearestAndMerge(locs);
@@ -1353,6 +1359,51 @@
         else lines[id].setLatLngs([a,b]).setStyle({ color: colorFor(id) });
       });
       Object.keys(lines).forEach(id => { if (!others.includes(id)) { map.removeLayer(lines[id]); delete lines[id]; } });
+    }
+
+    // アイコンを現在地→新位置へ滑らかに移動（精度円・接続線も追従）。瞬間移動(ワープ)を防ぐ
+    function animateMove(id, target){
+      const mk = markers[id]; if (!mk) return;
+      const from = mk.getLatLng();
+      const dLat = target[0] - from.lat, dLng = target[1] - from.lng;
+      if (anim[id]) { cancelAnimationFrame(anim[id]); anim[id] = null; }
+      // ほぼ動いていなければ即時反映（無駄なアニメをしない）
+      if (Math.abs(dLat) < 1e-7 && Math.abs(dLng) < 1e-7) {
+        mk.setLatLng(target); if (circles[id]) circles[id].setLatLng(target); redrawLinesLive(); return;
+      }
+      const t0 = performance.now();
+      (function step(now){
+        let t = (now - t0) / MOVE_MS; if (t > 1) t = 1;
+        const e = t < .5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2) / 2;   // ease-in-out
+        const p = [from.lat + dLat*e, from.lng + dLng*e];
+        mk.setLatLng(p);
+        if (circles[id]) circles[id].setLatLng(p);
+        redrawLinesLive();
+        if (t < 1) anim[id] = requestAnimationFrame(step); else anim[id] = null;
+      })(t0);
+    }
+
+    // アニメ中、線の端点をマーカーの実座標に追従させる（renderLines は確定値で別途引き直す）
+    function redrawLinesLive(){
+      if (!markers[uid]) return;
+      const a = markers[uid].getLatLng();
+      Object.keys(lines).forEach(id => {
+        const mk = markers[id]; if (!mk) return;
+        lines[id].setLatLngs([a, mk.getLatLng()]);
+      });
+    }
+
+    // 一定時間更新の無い位置のアイコンを薄く＝「離席中（位置が古い）」と分かるように
+    function refreshStaleness(){
+      const now = Date.now();
+      Object.keys(markers).forEach(id => {
+        const l = latestLocs[id];
+        const stale = !l || typeof l.updatedAt !== "number" || (now - l.updatedAt) >= STALE_MS;
+        markers[id].setOpacity(stale ? .35 : 1);
+        const el = markers[id].getElement(); if (el) el.classList.toggle("stale", stale);
+        if (circles[id]) circles[id].setStyle({ opacity: stale ? .2 : 1, fillOpacity: stale ? .03 : .08 });
+        if (lines[id]) lines[id].setStyle({ opacity: stale ? .2 : .55 });
+      });
     }
 
     // メンバー一覧チップ（色・名前・自分からの距離）。タップでフォーカス
@@ -1579,6 +1630,7 @@
       // ホストは残り時間チップをタップで延長できる
       el.textContent = `残り ${hm}:${String(s).padStart(2,"0")}` + (role === "host" ? "  ＋延長" : "");
       el.classList.toggle("extendable", role === "host");
+      if (map) refreshStaleness();   // 相手が離席して位置が古くなったら新データ無しでも薄くする
     }
     function startTimer(){
       clearInterval(timer);
