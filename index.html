@@ -199,6 +199,27 @@
     .pin.meet span { transform: none; }
     /* 位置が古い（離席・バックグラウンド）アイコン＝灰色がかって「ライブでない」と分かる */
     .leaflet-marker-icon.stale { filter: grayscale(.7); }
+    /* ナビ小窓（目的地への経路プレビュー） */
+    .nav-toggle {
+      position:absolute; z-index:1001; right:12px; top: calc(112px + env(safe-area-inset-top));
+      width:46px; height:46px; border-radius:50%; border:1px solid #2b3548;
+      background: rgba(23,29,43,.92); backdrop-filter: blur(8px); color:#fff;
+      font-size:20px; line-height:1; box-shadow: var(--shadow); cursor:pointer;
+    }
+    .nav-mini {
+      position:absolute; z-index:1001; right:12px; top: calc(108px + env(safe-area-inset-top));
+      width: min(74vw, 260px); background: rgba(23,29,43,.96); backdrop-filter: blur(8px);
+      border:1px solid #2b3548; border-radius:14px; box-shadow: var(--shadow); overflow:hidden;
+    }
+    .nav-mini-head { display:flex; align-items:center; gap:6px; padding:8px 10px; border-bottom:1px solid #2b3548; }
+    .nav-mini-title { flex:1; font-size:12.5px; font-weight:700; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .nav-mini-btn { background:none; border:none; color:#9fb0c7; font-size:15px; cursor:pointer; padding:2px 5px; border-radius:6px; }
+    .nav-mini-btn:hover { background:#22304a; color:#fff; }
+    .nav-mini-body { width:100%; height:190px; background:#0d1322; }
+    .nav-mini-body iframe { width:100%; height:100%; border:0; display:block; }
+    .nav-mini-note { padding:14px 12px; font-size:12px; color:#9fb0c7; line-height:1.6; }
+    .nav-mini-open { width:100%; border:none; border-top:1px solid #2b3548; background:#1f6feb; color:#fff; padding:11px; font-size:13px; font-weight:700; cursor:pointer; }
+    .nav-mini-open:hover { background:#388bfd; }
     /* 集合ピンのメモ（Leafletツールチップ） */
     .leaflet-tooltip.meet-tip {
       background: rgba(23,29,43,.96); color:#fff; border:1px solid var(--warn);
@@ -500,6 +521,19 @@
         </div>
       </div>
 
+      <!-- ナビ小窓トグル（集合場所がある時だけ表示） -->
+      <button type="button" id="btnNav" class="nav-toggle" style="display:none;" title="集合場所までの経路">🧭</button>
+      <!-- ナビ小窓（目的地への経路プレビュー＋Googleマップ起動） -->
+      <div id="navMini" class="nav-mini" style="display:none;">
+        <div class="nav-mini-head">
+          <span id="navTitle" class="nav-mini-title">集合場所への経路</span>
+          <button type="button" id="navRefresh" class="nav-mini-btn" title="現在地から再計算">↻</button>
+          <button type="button" id="navClose" class="nav-mini-btn" title="閉じる">✕</button>
+        </div>
+        <div id="navBody" class="nav-mini-body"></div>
+        <button type="button" id="navOpenGmaps" class="nav-mini-open">Google マップでナビ開始 ↗</button>
+      </div>
+
       <div id="roster" class="roster" style="display:none;"></div>
       <div id="meetPill" class="pill" style="display:none;">集合まで <b id="meetVal">—</b><span id="meetEta"></span></div>
 
@@ -647,7 +681,7 @@
     const SESSION_TTL_MS = 1 * HOUR_MS;           // 既定の共有時間（1時間）
     let selectedDurationMs = SESSION_TTL_MS;       // ホストが作成時に選んだ共有時間
     const MAX_SESSION_MS = 12 * HOUR_MS;           // 延長してもこの上限まで
-    const APP_VERSION = "2026.06.28.2";
+    const APP_VERSION = "2026.06.28.3";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -681,6 +715,10 @@
     let anim = {};                 // uid -> requestAnimationFrame id（アイコンのなめらか移動）
     const MOVE_MS = 600;           // アイコンが新しい位置へ滑って移動する時間
     const STALE_MS = 90 * 1000;    // この時間更新が無い位置は「古い」＝薄く表示（離席中に見える）
+    // ▼ Google Maps Embed API キー（経路プレビュー小窓に使用）。Google Cloud で取得→ここに貼る。
+    //   空のままでも「Googleマップでナビ開始」ボタンは動作する（キーが要るのは埋め込みプレビューだけ）。
+    const GOOGLE_MAPS_API_KEY = "";
+    let navOpen = false;           // ナビ小窓を開いているか
     let expiresAt = 0, timer = null;
     let meetPoint = null, meetMarker = null, settingMeet = false;
     let mergeStates = {};          // uid -> 0:離れている 1:接近中 2:合流済み
@@ -1023,7 +1061,45 @@
         if (meetPoint.label) meetMarker.bindTooltip(escapeHtml(meetPoint.label), { permanent: true, direction: "top", offset: [0,-14], className: "meet-tip" });
         else meetMarker.unbindTooltip();
       } else if (meetMarker) { map.removeLayer(meetMarker); meetMarker = null; }
+      updateNavVisibility();   // 集合場所の有無でナビ小窓トグルを出し入れ
     }
+
+    // ---- 目的地ナビ小窓（集合場所への経路プレビュー＋Googleマップ起動） ----
+    function myLatLng(){
+      const l = latestLocs[uid];
+      if (l && typeof l.lat === "number") return [l.lat, l.lng];
+      return lastMe || null;
+    }
+    function navEmbedSrc(){
+      if (!GOOGLE_MAPS_API_KEY || !meetPoint) return null;
+      const dest = `${meetPoint.lat},${meetPoint.lng}`;
+      const me = myLatLng();
+      if (me) return `https://www.google.com/maps/embed/v1/directions?key=${GOOGLE_MAPS_API_KEY}&origin=${me[0]},${me[1]}&destination=${dest}&mode=walking`;
+      return `https://www.google.com/maps/embed/v1/place?key=${GOOGLE_MAPS_API_KEY}&q=${dest}`;
+    }
+    function navGmapsUrl(){
+      // origin を付けない＝Googleマップ側が端末のライブ現在地を使う（本格ナビ向き）
+      return meetPoint ? `https://www.google.com/maps/dir/?api=1&destination=${meetPoint.lat},${meetPoint.lng}&travelmode=walking` : null;
+    }
+    function refreshNav(){
+      if (!navOpen) return;
+      $("navTitle").textContent = (meetPoint && meetPoint.label) ? `経路：${meetPoint.label}` : "集合場所への経路";
+      const body = $("navBody");
+      if (!meetPoint) { body.innerHTML = `<div class="nav-mini-note">集合場所が未設定です。「📍 集合」で目的地を決めてください。</div>`; return; }
+      const src = navEmbedSrc();
+      if (!src) { body.innerHTML = `<div class="nav-mini-note">地図プレビューには Google Maps APIキーの設定が必要です。下のボタンからは今すぐナビできます。</div>`; return; }
+      const cur = body.querySelector("iframe");
+      if (cur && cur.dataset.src === src) return;   // 同じ経路なら作り直さない（再読込のちらつき防止）
+      body.innerHTML = `<iframe loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>`;
+      const f = body.querySelector("iframe"); f.dataset.src = src; f.src = src;
+    }
+    function openNav(){ navOpen = true; $("navMini").style.display = "block"; $("btnNav").style.display = "none"; refreshNav(); }
+    function closeNav(){ navOpen = false; $("navMini").style.display = "none"; $("navBody").innerHTML = ""; $("btnNav").style.display = meetPoint ? "block" : "none"; }
+    function updateNavVisibility(){
+      if (navOpen) { $("btnNav").style.display = "none"; refreshNav(); }
+      else { $("navMini").style.display = "none"; $("btnNav").style.display = meetPoint ? "block" : "none"; }
+    }
+
     // ---- 集合場所パネル（検索 / 地図タップ / 解除） ----
     function openMeetPanel(){
       $("chatPanel").style.display = "none";
@@ -1049,6 +1125,11 @@
       if ($("meetPanel").style.display === "block") closeMeetPanel(); else openMeetPanel();
     });
     $("meetClose").addEventListener("click", closeMeetPanel);
+    // ---- 目的地ナビ小窓 ----
+    $("btnNav").addEventListener("click", openNav);
+    $("navClose").addEventListener("click", closeNav);
+    $("navRefresh").addEventListener("click", () => { const f = $("navBody").querySelector("iframe"); if (f) f.dataset.src = ""; refreshNav(); });
+    $("navOpenGmaps").addEventListener("click", () => { const u = navGmapsUrl(); if (u) window.open(u, "_blank", "noopener"); else toast("集合場所が未設定です"); });
     $("meetClear").addEventListener("click", () => {
       set(ref(db, `sessions/${sessionId}/meetPoint`), null);
       closeMeetPanel();
