@@ -716,7 +716,7 @@
     const SESSION_TTL_MS = 1 * HOUR_MS;           // 既定の共有時間（1時間）
     let selectedDurationMs = SESSION_TTL_MS;       // ホストが作成時に選んだ共有時間
     const MAX_SESSION_MS = 12 * HOUR_MS;           // 延長してもこの上限まで
-    const APP_VERSION = "2026.06.29.2";
+    const APP_VERSION = "2026.06.29.3";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -1203,10 +1203,21 @@
       const list = await res.json();
       return list.map(it => ({ lat: parseFloat(it.lat), lon: parseFloat(it.lon), display_name: it.display_name }));
     }
+    // 駅名・施設名(POI)っぽいか＝住所ジオコーダ(GSI)でなく Nominatim(POI検索)向き
+    function looksLikePOI(q){
+      if (/駅|空港|港|店|モール|デパート|百貨店|ビル|タワー|公園|城|寺|神社|大学|高校|中学|小学|学校|病院|クリニック|スタジアム|アリーナ|ドーム|ホール|センター|役所|役場|ホテル|旅館|美術館|博物館|図書館|水族館|動物園|プラザ|スクエア|ランド|パーク|温泉|神宮|球場|劇場|会館|キャンパス/.test(q)) return true;
+      // 住所要素（数字・丁目・番地）が無ければ施設名・地名寄りとみなす
+      return !/[0-9０-９]|丁目|番地|番|号/.test(q);
+    }
     async function geocode(qRaw){
       const q = normalizeQuery(qRaw);
-      try { const a = await geocodeGSI(q); if (a.length) return a.slice(0, 5); } catch(e){ console.warn("GSI失敗→Nominatimへ", e); }
-      return await geocodeNominatim(q);
+      // POIっぽければ Nominatim 優先、住所っぽければ GSI 優先。空振りはもう一方へフォールバック
+      const engines = looksLikePOI(q) ? [geocodeNominatim, geocodeGSI] : [geocodeGSI, geocodeNominatim];
+      for (const eng of engines){
+        try { const r = await eng(q); if (r && r.length) return r.slice(0, 5); }
+        catch(e){ console.warn("geocode engine failed", e); }
+      }
+      return [];
     }
     async function doSearch(){
       const q = $("meetSearch").value.trim();
