@@ -732,7 +732,7 @@
     const SESSION_TTL_MS = 1 * HOUR_MS;           // 既定の共有時間（1時間）
     let selectedDurationMs = SESSION_TTL_MS;       // ホストが作成時に選んだ共有時間
     const MAX_SESSION_MS = 12 * HOUR_MS;           // 延長してもこの上限まで
-    const APP_VERSION = "2026.06.29.5";
+    const APP_VERSION = "2026.06.29.6";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -1185,6 +1185,13 @@
     }
 
     // ---- 集合場所パネル（検索 / 地図タップ / 解除） ----
+    // 集合場所の設定中だけ地図回転を切る（地図タップで位置を決める間の誤回転を防止）
+    function setRotateEnabled(on){
+      if (!map) return;
+      ["touchRotate", "shiftKeyRotate"].forEach(h => {
+        if (map[h] && typeof map[h].enable === "function") map[h][on ? "enable" : "disable"]();
+      });
+    }
     function openMeetPanel(){
       $("chatPanel").style.display = "none";
       $("invitePanel").style.display = "none";
@@ -1197,12 +1204,14 @@
       $("meetResults").innerHTML = "";
       $("meetSearch").value = "";
       settingMeet = true;                 // 地図タップでも設定可
+      setRotateEnabled(false);            // 設定中は回転オフ
       $("btnMeet").classList.add("active");
       setTimeout(()=>$("meetSearch").focus(), 50);
     }
     function closeMeetPanel(){
       $("meetPanel").style.display = "none";
       settingMeet = false;
+      setRotateEnabled(true);             // 設定終了で回転を元に戻す
       $("btnMeet").classList.remove("active");
     }
     $("btnMeet").addEventListener("click", () => {
