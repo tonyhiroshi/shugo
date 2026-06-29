@@ -681,7 +681,7 @@
     const SESSION_TTL_MS = 1 * HOUR_MS;           // 既定の共有時間（1時間）
     let selectedDurationMs = SESSION_TTL_MS;       // ホストが作成時に選んだ共有時間
     const MAX_SESSION_MS = 12 * HOUR_MS;           // 延長してもこの上限まで
-    const APP_VERSION = "2026.06.28.3";
+    const APP_VERSION = "2026.06.29.1";
 
     // ---- 小物 ----
     const $ = (id) => document.getElementById(id);
@@ -717,7 +717,7 @@
     const STALE_MS = 90 * 1000;    // この時間更新が無い位置は「古い」＝薄く表示（離席中に見える）
     // ▼ Google Maps Embed API キー（経路プレビュー小窓に使用）。Google Cloud で取得→ここに貼る。
     //   空のままでも「Googleマップでナビ開始」ボタンは動作する（キーが要るのは埋め込みプレビューだけ）。
-    const GOOGLE_MAPS_API_KEY = "";
+    const GOOGLE_MAPS_API_KEY = "AIzaSyD6aunCLB70iqgMmKmOB1_wJDtoadzJELQ";
     let navOpen = false;           // ナビ小窓を開いているか
     let expiresAt = 0, timer = null;
     let meetPoint = null, meetMarker = null, settingMeet = false;
